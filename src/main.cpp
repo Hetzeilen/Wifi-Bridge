@@ -143,19 +143,19 @@ void saveToFlash() {
     f.println(myCfg.mdns);
     f.println(String(myCfg.baud));
     std::vector<String> validParities = {"N", "E", "O"};
-    if (find(validParities.begin(), validParities.end(), myCfg.parity) != validParities.end()) {
+    if (find(validParities.begin(), validParities.end(), myCfg.parity.c_str()) != validParities.end()) {
       f.println(myCfg.parity.c_str());
     } else {
       f.println("N"); // Default to "N" if invalid
     }
     std::vector<String> validStopBits = {"1", "1.5", "2"};
-    if (find(validStopBits.begin(), validStopBits.end(), myCfg.stopBits) != validStopBits.end()) {
+    if (find(validStopBits.begin(), validStopBits.end(), myCfg.stopBits.c_str()) != validStopBits.end()) {
       f.println(myCfg.stopBits.c_str());
     } else {
       f.println("1"); // Default to "1" if invalid
     }
     std::vector<String> validDataBits = {"5", "6", "7", "8"};
-    if (find(validDataBits.begin(), validDataBits.end(), myCfg.dataBits) != validDataBits.end()) {
+    if (find(validDataBits.begin(), validDataBits.end(), myCfg.dataBits.c_str()) != validDataBits.end()) {
       f.println(myCfg.dataBits.c_str());
     } else {
       f.println("8"); // Default to "8" if invalid
