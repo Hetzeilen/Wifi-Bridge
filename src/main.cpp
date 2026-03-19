@@ -66,7 +66,7 @@ std::vector<InputOption> parityOptions = {
 };
 
 const char* CFG_PATH = "/config.txt";
-uint8_t configuration_UART1 = SERIAL_8N1;
+byte configuration_UART1 =  0x06; // SERIAL_8N1
 uint8_t bit_parite;
 uint8_t bit_arret;
 uint8_t longueur_donnees;
