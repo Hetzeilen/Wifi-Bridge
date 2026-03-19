@@ -75,6 +75,10 @@ String eventLog = "";
 const int maxLogLines = 25;
 bool safeModeActive = false;
 
+std::string parityRadioOptions; // Globale variabele om de gegenereerde Parity Radio HTML op te slaan
+std::string stopBitDropdown; // Globale variabele om de gegenereerde Stop Bit Dropdown HTML op te slaan
+std::string dataBitDropdown; // Globale variabele om de gegenereerde Data Bit Dropdown HTML op te slaan
+
 // Pas de selectie aan in de vector op basis van een label-match
 void selectByLabel(std::vector<InputOption>& options, const std::string& targetLabel) {
     for (auto& opt : options) {
@@ -191,15 +195,15 @@ void loadFromFlash() {
   configuration_UART1 = ( ( ( bit_parite * 4 ) + ( longueur_donnees == 7 ? 0 : 2 ) + ( bit_arret ? 1 : 0 ) )[ "emgo\x95\x9D\x97\x9F\x85\x8D\x87\x8F" ] ) - 'a';
   // Build Parity HTML Radio
   selectByValue(parityOptions, myCfg.parity);
-  std::string parityRadioOptions = buildRadioHtml(parityOptions, "parity_group");
+  parityRadioOptions = buildRadioHtml(parityOptions, "parity_group").c_str();
 
   // Build Stop Bits HTML Dropdown
   selectByValue(stopBitOptions, myCfg.stopBits);
-  std::string stopBitDropdown = buildDropdownHtml(stopBitOptions, "stopBits_group");
+  stopBitDropdown = buildDropdownHtml(stopBitOptions, "stopBits_group");
 
   // Build Data Bits HTML Dropdown
   selectByValue(dataBitOptions, myCfg.dataBits);
-  std::string dataBitDropdown = buildDropdownHtml(dataBitOptions, "dataBits_group");
+  dataBitDropdown = buildDropdownHtml(dataBitOptions, "dataBits_group");
 
 }
 
@@ -299,18 +303,15 @@ setInterval(upLog, 1200);
 <div class='card'>
   <h3>)rawliteral" + UI_NET_SETTINGS + R"rawliteral(</h3>
   <form action='/savecfg' method='POST'>
-    <label>SSID:<input name='s' type='text' value=')"rawliteral" + myCfg.ssid + R"rawliteral('></label>
-    <label>Password:<input name='p' type='password' value=')"rawliteral" + myCfg.pass + R"rawliteral('></label>
-    <label>mDNS:<input name='m' type='text' value=')"rawliteral" + myCfg.mdns + R"rawliteral('></label>
-    <label>Baudrate:<input name='b' type='text' value=')"rawliteral" + String(myCfg.baud) + R"rawliteral('></label>
-    <p>Parity</p>
-    <label><input name='parity' type='radio' value='E'> Even</label>
-    <label><input name='parity' type='radio' value='O'> Odd</label>
-    <label><input name='parity' type='radio' value='N'> No Parity</label>
-    <label>Data Bits:<input name='data' type='text' value=')"rawliteral" + myCfg.dataBits + R"rawliteral('></label>
-    <label>Stop Bits:<input name='stop' type='text' value=')"rawliteral" + myCfg.stopBits + R"rawliteral('></label>
+    <label>SSID:<input name='s' type='text' value=')rawliteral" + myCfg.ssid + R"rawliteral('></label>
+    <label>Password:<input name='p' type='password' value=')rawliteral" + myCfg.pass + R"rawliteral('></label>
+    <label>mDNS:<input name='m' type='text' value=')rawliteral" + myCfg.mdns + R"rawliteral('></label>
+    <label>Baudrate:<input name='b' type='text' value=')rawliteral" + String(myCfg.baud) + R"rawliteral('></label>
+    <p>Parity</p>)rawliteral" + parityRadioOptions.c_str() + R"rawliteral(
+    <p>Data Bits</p>)rawliteral" + dataBitDropdown.c_str() + R"rawliteral(
+    <p>Stop Bits</p>')rawliteral" + stopBitDropdown.c_str() + R"rawliteral('></label>
     <div class='secDiv'>
-    <input type='submit' class='btn' value=')"rawliteral" + UI_SAVE_BUTTON + R"rawliteral(' style='background:#28a745;'>
+    <input type='submit' class='btn' value=')rawliteral" + UI_SAVE_BUTTON + R"rawliteral(' style='background:#28a745;'>
     </div>
   </form>
 </div>
@@ -375,7 +376,14 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/getlog", [](){ server.send(200, "text/plain", eventLog); });
   server.on("/savecfg", [](){
-    myCfg.ssid = server.arg("s"); myCfg.pass = server.arg("p"); myCfg.mdns = server.arg("m");
+    myCfg.ssid = server.arg("s"); // Lees ssid van formulier
+    myCfg.pass = server.arg("p"); // Lees password van formulier
+    myCfg.mdns = server.arg("m"); // Lees mDNS van formulier
+    String baudAsString = server.arg("b"); // Lees baudrate van formulier
+    myCfg.baud = baudAsString.toInt(); // Converteer naar integer
+    myCfg.parity = server.arg("parity_group").c_str(); // Lees parity_group van formulier
+    myCfg.stopBits = server.arg("stopBits_group").c_str(); // Lees stopBits_group van formulier
+    myCfg.dataBits = server.arg("dataBits_group").c_str(); // Lees dataBits_group van formulier 
     saveToFlash();
     server.send(200, "text/plain", "Opgeslagen! ESP32 herstart nu...");
     delay(2000); ESP.restart();
