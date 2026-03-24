@@ -37,6 +37,7 @@ struct InputOption {
 
 // --- CONFIGURATIE STRUCTUUR ---
 struct Config {
+  String version = "v1";
   String ssid = "navtex";
   String pass = "navtex";
   String mdns = "supermini";
@@ -76,8 +77,8 @@ const int maxLogLines = 25;
 bool safeModeActive = false;
 
 std::string parityRadioOptions; // Globale variabele om de gegenereerde Parity Radio HTML op te slaan
-std::string stopBitDropdown; // Globale variabele om de gegenereerde Stop Bit Dropdown HTML op te slaan
-std::string dataBitDropdown; // Globale variabele om de gegenereerde Data Bit Dropdown HTML op te slaan
+std::string stopBitRadioOptions; // Globale variabele om de gegenereerde Stop Bit Dropdown HTML op te slaan
+std::string dataBitRadioOptions; // Globale variabele om de gegenereerde Data Bit Dropdown HTML op te slaan
 
 // Pas de selectie aan in de vector op basis van een label-match
 void selectByLabel(std::vector<InputOption>& options, const std::string& targetLabel) {
@@ -142,6 +143,7 @@ void addToLog(String msg) {
 void saveToFlash() {
   File f = LittleFS.open(CFG_PATH, "w");
   if (f) {
+    f.println(myCfg.version);
     f.println(myCfg.ssid);
     f.println(myCfg.pass);
     f.println(myCfg.mdns);
@@ -175,6 +177,8 @@ void loadFromFlash() {
   }
   File f = LittleFS.open(CFG_PATH, "r");
   if (f) {
+    myCfg.version = f.readStringUntil('\n'); myCfg.version.trim();
+    addToLog("Wifi Bridge version " + myCfg.version + ";");
     myCfg.ssid = f.readStringUntil('\n'); myCfg.ssid.trim();
     myCfg.pass = f.readStringUntil('\n'); myCfg.pass.trim();
     myCfg.mdns = f.readStringUntil('\n'); myCfg.mdns.trim();
@@ -199,11 +203,11 @@ void loadFromFlash() {
 
   // Build Stop Bits HTML Dropdown
   selectByValue(stopBitOptions, myCfg.stopBits);
-  stopBitDropdown = buildDropdownHtml(stopBitOptions, "stopBits_group");
+  stopBitRadioOptions = buildRadioHtml(stopBitOptions, "stopBits_group");
 
   // Build Data Bits HTML Dropdown
   selectByValue(dataBitOptions, myCfg.dataBits);
-  dataBitDropdown = buildDropdownHtml(dataBitOptions, "dataBits_group");
+  dataBitRadioOptions = buildRadioHtml(dataBitOptions, "dataBits_group");
 
 }
 
@@ -308,8 +312,8 @@ setInterval(upLog, 1200);
     <label>mDNS:<input name='m' type='text' value=')rawliteral" + myCfg.mdns + R"rawliteral('></label>
     <label>Baudrate:<input name='b' type='text' value=')rawliteral" + String(myCfg.baud) + R"rawliteral('></label>
     <p>Parity</p>)rawliteral" + parityRadioOptions.c_str() + R"rawliteral(
-    <p>Data Bits</p>)rawliteral" + dataBitDropdown.c_str() + R"rawliteral(
-    <p>Stop Bits</p>')rawliteral" + stopBitDropdown.c_str() + R"rawliteral('></label>
+    <p>Data Bits</p>)rawliteral" + dataBitRadioOptions.c_str() + R"rawliteral(
+    <p>Stop Bits</p>')rawliteral" + stopBitRadioOptions.c_str() + R"rawliteral('></label>
     <div class='secDiv'>
     <input type='submit' class='btn' value=')rawliteral" + UI_SAVE_BUTTON + R"rawliteral(' style='background:#28a745;'>
     </div>
@@ -358,7 +362,7 @@ void setup() {
     safeModeActive = true;
     WiFi.softAP("C3-SAFE-MODE", "12345678");
     addToLog("!!! SAFE MODE ACTIEF !!!");
-    addToLog("Verbind met 'C3-SAFE-MODE' (WW: 12345678) en ga naar 192.168.4.1");
+    addToLog("Ga naar 192.168.4.1 en verbind met 'C3-SAFE-MODE' (WW: 12345678)");
   } else {
     WiFi.begin(myCfg.ssid.c_str(), myCfg.pass.c_str());
     int retry = 0;
