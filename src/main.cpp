@@ -80,6 +80,14 @@ std::string parityRadioOptions; // Globale variabele om de gegenereerde Parity R
 std::string stopBitRadioOptions; // Globale variabele om de gegenereerde Stop Bit Dropdown HTML op te slaan
 std::string dataBitRadioOptions; // Globale variabele om de gegenereerde Data Bit Dropdown HTML op te slaan
 
+String htmlHeaderString; // Globale variabele om de HTML header op te slaan
+String htmlCSS;          // Globale variabele om de CSS op te slaan
+String htmlSafeModeHeader; // Globale variabele om de Safe Mode header op te slaan
+String htmlWifiConfig;   // Globale variabele om de WiFi Config HTML op te slaan
+String htmlUartSend;     // Globale variabele om de UART Send HTML op te slaan
+String htmlLog;          // Globale variabele om de Log HTML op te slaan
+String htmlUploadLogFunction; // Globale variabele om de AJAX upload functie op te slaan
+
 // Pas de selectie aan in de vector op basis van een label-match
 void selectByLabel(std::vector<InputOption>& options, const std::string& targetLabel) {
     for (auto& opt : options) {
@@ -222,10 +230,10 @@ const String UI_SAVE_BUTTON = "Opslaan & Herstarten";
 const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
 
-void handleRoot() {
-  String htmlHeaderString = "<html><head><title>C3 Bridge</title><meta name='viewport' content='width=device-width, initial-scale=1'>";
+void createHtmlTemplates() {
+htmlHeaderString = "<html><head><title>C3 Bridge</title><meta name='viewport' content='width=device-width, initial-scale=1'>";
   // AJAX Script
-  String htmlUploadLogFunction = R"rawliteral(
+htmlUploadLogFunction = R"rawliteral(
 <script>
 function upLog() {
   const b = document.getElementById('lb');
@@ -245,7 +253,7 @@ setInterval(upLog, 1200);
   const String NORMAL_BG_COLOR = "#f4f7f6";
   // Set page background color based on safe mode status
   String pageBackgroundColor = safeModeActive ? SAFE_MODE_BG_COLOR : NORMAL_BG_COLOR;
-  String htmlCSS = R"rawliteral(
+  htmlCSS = R"rawliteral(
   <style>
   body {
     font-family: sans-serif;
@@ -295,7 +303,6 @@ setInterval(upLog, 1200);
   </head><body>
   )rawliteral";
 
-  String htmlSafeModeHeader;
      if(safeModeActive) {
        htmlSafeModeHeader = "<h2 style='color:red;'>" + UI_SAFE_MODE_HEADER + "</h2><p>" + UI_SAFE_MODE_DESC + "</p>";
      } else {
@@ -303,7 +310,7 @@ setInterval(upLog, 1200);
      }
 
   // WiFi Config
-  String htmlWifiConfig = R"rawliteral(
+  htmlWifiConfig = R"rawliteral(
 <div class='card'>
   <h3>)rawliteral" + UI_NET_SETTINGS + R"rawliteral(</h3>
   <form action='/savecfg' method='POST'>
@@ -322,7 +329,7 @@ setInterval(upLog, 1200);
 )rawliteral";
 
   // UART Send
-  String htmlUartSend = R"rawliteral(
+  htmlUartSend = R"rawliteral(
 <div class='card'>
   <h3>)rawliteral" + UI_UART_COMMAND + R"rawliteral(</h3>
   <form action='/write' method='POST'>
@@ -333,13 +340,16 @@ setInterval(upLog, 1200);
 )rawliteral";
 
   // Log
-  String htmlLog = R"rawliteral(
+  htmlLog = R"rawliteral(
 <div class='card'>
   <h3>)rawliteral" + UI_SERIAL_MONITOR + R"rawliteral(</h3>
   <div id='lb' class='box'>)rawliteral" + eventLog + R"rawliteral(</div>
 </div>
 </body></html>
 )rawliteral";
+}
+
+void handleRoot() {
   String serverOutput = htmlHeaderString + htmlCSS + htmlSafeModeHeader + htmlWifiConfig + htmlUartSend + htmlLog + htmlUploadLogFunction;
   server.send(200, "text/html", serverOutput);
 }
@@ -350,14 +360,19 @@ void setup() {
   Serial.begin(115200); // USB-CDC
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
 
-  if (!LittleFS.begin(true)) { Serial.println("FS Fout"); return; }
+  if (!LittleFS.begin(true)) {
+    delay(1000);
+    Serial.println("FS Fout");
+    return;
+  }
   loadFromFlash();
+  createHtmlTemplates();
 
   // Hardware UART1 configuratie
   Serial1.begin(myCfg.baud, configuration_UART1, UART1_RX, UART1_TX);
 
   // CHECK VOOR SAFE MODE (BOOT knop ingedrukt tijdens start)
-  delay(100); 
+  delay(1000); 
   if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
     safeModeActive = true;
     WiFi.softAP("C3-SAFE-MODE", "12345678");
@@ -371,8 +386,10 @@ void setup() {
     if (WiFi.status() == WL_CONNECTED) {
       MDNS.begin(myCfg.mdns.c_str());
       addToLog("WiFi Verbonden! Browser: http://" + myCfg.mdns + ".local");
+      Serial.println("WiFi Verbonden! Browser: http://" + myCfg.mdns + ".local");
     } else {
       addToLog("WiFi FOUT. Houd BOOT ingedrukt bij reset voor Safe Mode.");
+      Serial.println("WiFi FOUT. Houd BOOT ingedrukt bij reset voor Safe Mode.");
     }
   }
 
