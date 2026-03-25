@@ -39,7 +39,7 @@ struct InputOption {
 struct Config {
   String version = "v1";
   String ssid = "navtex";
-  String pass = "navtex";
+  String pass = "navtex78";
   String mdns = "supermini";
   long baud = 4800;
   std::string parity = "N"; // N=none, E=even, O=odd
@@ -372,16 +372,23 @@ void setup() {
   Serial1.begin(myCfg.baud, configuration_UART1, UART1_RX, UART1_TX);
 
   // CHECK VOOR SAFE MODE (BOOT knop ingedrukt tijdens start)
-  delay(1000); 
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
     safeModeActive = true;
     WiFi.softAP("C3-SAFE-MODE", "12345678");
     addToLog("!!! SAFE MODE ACTIEF !!!");
     addToLog("Ga naar 192.168.4.1 en verbind met 'C3-SAFE-MODE' (WW: 12345678)");
+    Serial.println("Ga naar 192.168.4.1 en verbind met 'C3-SAFE-MODE' (WW: 12345678)");
   } else {
     WiFi.begin(myCfg.ssid.c_str(), myCfg.pass.c_str());
+    //WiFi.setTxPower(WIFI_POWER_8_5dBm);
     int retry = 0;
-    while (WiFi.status() != WL_CONNECTED && retry < 20) { delay(500); retry++; }
+    while (WiFi.status() != WL_CONNECTED && retry < 40) {
+      Serial.print(".");
+      delay(1200); retry++;
+    }
     
     if (WiFi.status() == WL_CONNECTED) {
       MDNS.begin(myCfg.mdns.c_str());
@@ -389,7 +396,10 @@ void setup() {
       Serial.println("WiFi Verbonden! Browser: http://" + myCfg.mdns + ".local");
     } else {
       addToLog("WiFi FOUT. Houd BOOT ingedrukt bij reset voor Safe Mode.");
-      Serial.println("WiFi FOUT. Houd BOOT ingedrukt bij reset voor Safe Mode.");
+      delay(100);
+      safeModeActive = true;
+      WiFi.softAP("C3-SAFE-MODE", "12345678");
+      Serial.println("Forced safe mode. Ga naar 192.168.4.1 en verbind met 'C3-SAFE-MODE' (WW: 12345678)");
     }
   }
 
