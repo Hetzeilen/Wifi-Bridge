@@ -16,9 +16,38 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <time.h>
 //#include <print>
 #include <fmt.h>
 
+const char*  clockFaces[] PROGMEM = {
+  "\xF0\x9F\x95\x9B", // 12:00
+  "\xF0\x9F\x95\xA7", // 12:30
+  "\xF0\x9F\x95\x90", // 1:00
+  "\xF0\x9F\x95\x9C", // 1:30
+  "\xF0\x9F\x95\x91", // 2:00
+  "\xF0\x9F\x95\x9D", // 2:30
+  "\xF0\x9F\x95\x92", // 3:00
+  "\xF0\x9F\x95\x9E", // 3:30
+  "\xF0\x9F\x95\x93", // 4:00
+  "\xF0\x9F\x95\x9F", // 4:30
+  "\xF0\x9F\x95\x94", // 5:00
+  "\xF0\x9F\x95\xA0", // 5:30
+  "\xF0\x9F\x95\x95", // 6:00
+  "\xF0\x9F\x95\xA1", // 6:30
+  "\xF0\x9F\x95\x96", // 7:00
+  "\xF0\x9F\x95\xA2", // 7:30
+  "\xF0\x9F\x95\x97", // 8:00
+  "\xF0\x9F\x95\xA3", // 8:30
+  "\xF0\x9F\x95\x98", // 9:00
+  "\xF0\x9F\x95\xA4", // 9:30
+  "\xF0\x9F\x95\x99", // 10:00
+  "\xF0\x9F\x95\xA5", // 10:30
+  "\xF0\x9F\x95\x9A", // 11:00
+  "\xF0\x9F\x95\xA6"  // 11:30
+};
+
+struct tm timeInfo;
 typedef uint8_t UInt8;
 
 // --- HARDWARE PIN DEFINITIES ---
@@ -40,11 +69,11 @@ struct Config {
   String version = "v1";
   String ssid = "navtex";
   String pass = "navtex78";
-  String mdns = "supermini";
+  String mdns = "navtex";
   long baud = 4800;
-  std::string parity = "N"; // N=none, E=even, O=odd
-  std::string stopBits = "1"; // 1, 1.5, 2
-  std::string dataBits = "8"; // 5, 6, 7, 8
+  String parity = "N"; // N=none, E=even, O=odd
+  String stopBits = "1"; // 1, 1.5, 2
+  String dataBits = "8"; // 5, 6, 7, 8
 } myCfg;
 
 std::vector<InputOption> stopBitOptions = {
@@ -87,6 +116,7 @@ String htmlWifiConfig;   // Globale variabele om de WiFi Config HTML op te slaan
 String htmlUartSend;     // Globale variabele om de UART Send HTML op te slaan
 String htmlLog;          // Globale variabele om de Log HTML op te slaan
 String htmlUploadLogFunction; // Globale variabele om de AJAX upload functie op te slaan
+std::string htmlDateTimeButton_UI; // Globale variabele DateTime submit button te decoreren
 
 // Pas de selectie aan in de vector op basis van een label-match
 void selectByLabel(std::vector<InputOption>& options, const std::string& targetLabel) {
@@ -104,6 +134,14 @@ void selectByValue(std::vector<InputOption>& options, std::string& targetValue) 
     }
 }
 
+// Handle date and time, hour 0-23, minute 0-59
+const char* getCurrentClockEmoji(const int hour, const int minute) {
+  // Convert to 12‑hour format
+  int moduloTwelveHour = hour % 12;
+  // Determine index (0–23)
+  int index = moduloTwelveHour * 2 + (minute >= 30 ? 1 : 0);
+  return clockFaces[index];
+}
 
 // Genereer HTML Dropdown string
 std::string buildDropdownHtml(const std::vector<InputOption>& options, const std::string& name) {
@@ -157,20 +195,20 @@ void saveToFlash() {
     f.println(myCfg.mdns);
     f.println(String(myCfg.baud));
     std::vector<String> validParities = {"N", "E", "O"};
-    if (find(validParities.begin(), validParities.end(), myCfg.parity.c_str()) != validParities.end()) {
-      f.println(myCfg.parity.c_str());
+    if (find(validParities.begin(), validParities.end(), myCfg.parity) != validParities.end()) {
+      f.println(myCfg.parity);
     } else {
       f.println("N"); // Default to "N" if invalid
     }
     std::vector<String> validStopBits = {"1", "1.5", "2"};
-    if (find(validStopBits.begin(), validStopBits.end(), myCfg.stopBits.c_str()) != validStopBits.end()) {
-      f.println(myCfg.stopBits.c_str());
+    if (find(validStopBits.begin(), validStopBits.end(), myCfg.stopBits) != validStopBits.end()) {
+      f.println(myCfg.stopBits);
     } else {
       f.println("1"); // Default to "1" if invalid
     }
     std::vector<String> validDataBits = {"5", "6", "7", "8"};
-    if (find(validDataBits.begin(), validDataBits.end(), myCfg.dataBits.c_str()) != validDataBits.end()) {
-      f.println(myCfg.dataBits.c_str());
+    if (find(validDataBits.begin(), validDataBits.end(), myCfg.dataBits) != validDataBits.end()) {
+      f.println(myCfg.dataBits);
     } else {
       f.println("8"); // Default to "8" if invalid
     }
@@ -192,11 +230,9 @@ void loadFromFlash() {
     myCfg.mdns = f.readStringUntil('\n'); myCfg.mdns.trim();
     String baudAsString = f.readStringUntil('\n'); baudAsString.trim();
     if(baudAsString.length() > 0) myCfg.baud = baudAsString.toInt();
-    myCfg.parity = f.readStringUntil('\n').c_str(); // Parity als string (N, E, O)
-    String stopBitsAsString = f.readStringUntil('\n'); stopBitsAsString.trim();
-    if(stopBitsAsString.length() > 0) myCfg.stopBits = stopBitsAsString.toInt();
-    String dataBitsAsString = f.readStringUntil('\n'); dataBitsAsString.trim();
-    if(dataBitsAsString.length() > 0) myCfg.dataBits = dataBitsAsString.toInt();
+    myCfg.parity = f.readStringUntil('\n'); myCfg.parity.trim(); // Parity als string (N, E, O)
+    myCfg.stopBits = f.readStringUntil('\n'); myCfg.stopBits.trim();
+    myCfg.dataBits = f.readStringUntil('\n'); myCfg.dataBits.trim();
     f.close();
   }
   bit_parite = (myCfg.parity == "N") ? 0 : (myCfg.parity == "E" ? 2 : 3);
@@ -206,17 +242,35 @@ void loadFromFlash() {
   // As one-liner:
   configuration_UART1 = ( ( ( bit_parite * 4 ) + ( longueur_donnees == 7 ? 0 : 2 ) + ( bit_arret ? 1 : 0 ) )[ "emgo\x95\x9D\x97\x9F\x85\x8D\x87\x8F" ] ) - 'a';
   // Build Parity HTML Radio
-  selectByValue(parityOptions, myCfg.parity);
+  std::string parityStr(myCfg.parity.c_str());
+  selectByValue(parityOptions, parityStr);
   parityRadioOptions = buildRadioHtml(parityOptions, "parity_group").c_str();
 
   // Build Stop Bits HTML Dropdown
-  selectByValue(stopBitOptions, myCfg.stopBits);
+  std::string stopBitsStr(myCfg.stopBits.c_str());
+  selectByValue(stopBitOptions, stopBitsStr);
   stopBitRadioOptions = buildRadioHtml(stopBitOptions, "stopBits_group");
 
   // Build Data Bits HTML Dropdown
-  selectByValue(dataBitOptions, myCfg.dataBits);
+  std::string dataBitsStr(myCfg.dataBits.c_str());
+  selectByValue(dataBitOptions, dataBitsStr);
   dataBitRadioOptions = buildRadioHtml(dataBitOptions, "dataBits_group");
 
+}
+
+// Cast wallclock time to global variable and update Html button representation
+void castWallClockTime() {
+  // Obtain proper clock face based on current time
+  time_t now = time(nullptr);
+  localtime_r(&now, &timeInfo);
+  int wallClockHour = timeInfo.tm_hour;
+  int wallClockMinute = timeInfo.tm_min; 
+  int wallClockSecond = timeInfo.tm_sec;
+  std::string clockFace = getCurrentClockEmoji(wallClockHour, wallClockMinute); // Voorbeeld: 14:45
+  std::string wallClockTime = fmt::format("{:02d}:{:02d}:{:02d}", wallClockHour, wallClockMinute, wallClockSecond);
+  htmlDateTimeButton_UI = fmt::format("<div class='card'><button type='submit' form='wallclock'> {} {}</button><form id='wallclock' method='get' action='/wallclock'></form></div>", clockFace, wallClockTime);
+  Serial.print("Casted wallClock: ");
+  Serial.println(wallClockTime.c_str());
 }
 
 // --- WEB INTERFACE HTML ---
@@ -231,6 +285,8 @@ const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
 
 void createHtmlTemplates() {
+castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
+
 htmlHeaderString = "<html><head><title>C3 Bridge</title><meta name='viewport' content='width=device-width, initial-scale=1'>";
   // AJAX Script
 htmlUploadLogFunction = R"rawliteral(
@@ -255,52 +311,52 @@ setInterval(upLog, 1200);
   String pageBackgroundColor = safeModeActive ? SAFE_MODE_BG_COLOR : NORMAL_BG_COLOR;
   htmlCSS = R"rawliteral(
   <style>
-  body {
-    font-family: sans-serif;
-    background: )rawliteral" + pageBackgroundColor + R"rawliteral(; 
-    padding: 15px;
-  }
-  .card {
-    background: #fff;
-    padding: 15px;
-    border-radius: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    margin-bottom: 15px;
-  }
-  .secDiv input {
-    width: 48%;
-    display: inline-block;
-  }
-   .secDiv input:first-child {
-    margin-right: 4%;
-  }
-  .box {
-    background: #1e1e1e;
-    color: #0f0;
-    padding: 10px;
-    height: 280px;
-    overflow-y: auto;
-    font-family: monospace;
-    border-radius: 5px;
-    white-space: pre-wrap;
-  }
-  input[type=text], input[type=password] {
-    width: 100%;
-    padding: 10px;
-    margin: 5px 0;
-    box-sizing: border-box;
-  }
-  .btn {
-    padding: 10px 20px;
-    background: #007bff;
-    color: #fff;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    width: 100%;
-  }
-  </style>
-  </head><body>
+body {
+  font-family: sans-serif;
+  background: )rawliteral" + pageBackgroundColor + R"rawliteral(; 
+  padding: 15px;
+}
+.card {
+  background: #fff;
+  padding: 15px;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  margin-bottom: 15px;
+}
+.secDiv input {
+  width: 48%;
+  display: inline-block;
+}
+.secDiv input:first-child {
+  margin-right: 4%;
+}
+.box {
+  background: #1e1e1e;
+  color: #0f0;
+  padding: 10px;
+  height: 280px;
+  overflow-y: auto;
+  font-family: monospace;
+  border-radius: 5px;
+  white-space: pre-wrap;
+}
+input[type=text], input[type=password] {
+  width: 100%;
+  padding: 10px;
+  margin: 5px 0;
+  box-sizing: border-box;
+}
+.btn {
+  padding: 10px 20px;
+  background: #007bff;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  width: 100%;
+}
+</style>
+</head><body>
   )rawliteral";
 
      if(safeModeActive) {
@@ -314,13 +370,13 @@ setInterval(upLog, 1200);
 <div class='card'>
   <h3>)rawliteral" + UI_NET_SETTINGS + R"rawliteral(</h3>
   <form action='/savecfg' method='POST'>
-    <label>SSID:<input name='s' type='text' value=')rawliteral" + myCfg.ssid + R"rawliteral('></label>
-    <label>Password:<input name='p' type='password' value=')rawliteral" + myCfg.pass + R"rawliteral('></label>
-    <label>mDNS:<input name='m' type='text' value=')rawliteral" + myCfg.mdns + R"rawliteral('></label>
-    <label>Baudrate:<input name='b' type='text' value=')rawliteral" + String(myCfg.baud) + R"rawliteral('></label>
+    <label>SSID:<input name='s' type='text' value=')rawliteral" + myCfg.ssid + R"rawliteral(' required></label>
+    <label>Password:<input name='p' type='password' value='********' required></label>
+    <label>mDNS:<input name='m' type='text' value=')rawliteral" + myCfg.mdns + R"rawliteral(' required></label>
+    <label>Baudrate:<input name='b' type='text' value=')rawliteral" + String(myCfg.baud) + R"rawliteral(' required></label>
     <p>Parity</p>)rawliteral" + parityRadioOptions.c_str() + R"rawliteral(
     <p>Data Bits</p>)rawliteral" + dataBitRadioOptions.c_str() + R"rawliteral(
-    <p>Stop Bits</p>')rawliteral" + stopBitRadioOptions.c_str() + R"rawliteral('></label>
+    <p>Stop Bits</p>)rawliteral" + stopBitRadioOptions.c_str() + R"rawliteral(</label>
     <div class='secDiv'>
     <input type='submit' class='btn' value=')rawliteral" + UI_SAVE_BUTTON + R"rawliteral(' style='background:#28a745;'>
     </div>
@@ -350,8 +406,11 @@ setInterval(upLog, 1200);
 }
 
 void handleRoot() {
-  String serverOutput = htmlHeaderString + htmlCSS + htmlSafeModeHeader + htmlWifiConfig + htmlUartSend + htmlLog + htmlUploadLogFunction;
-  server.send(200, "text/html", serverOutput);
+  createHtmlTemplates(); // Regenerate templates to update dynamic content like clock emoji
+  String serverOutput = safeModeActive ? htmlHeaderString + htmlCSS + htmlSafeModeHeader + htmlWifiConfig + htmlUartSend + htmlLog + htmlUploadLogFunction
+                                        : htmlHeaderString + htmlCSS + htmlSafeModeHeader + htmlDateTimeButton_UI.c_str() + htmlUartSend + htmlLog + htmlUploadLogFunction;  
+  
+  server.send(200, "text/html; charset=UTF-8", serverOutput);
 }
 
 // --- SETUP ---
@@ -374,33 +433,25 @@ void setup() {
   // CHECK VOOR SAFE MODE (BOOT knop ingedrukt tijdens start)
   delay(100);
   WiFi.mode(WIFI_AP);
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
     safeModeActive = true;
-    WiFi.softAP("C3-SAFE-MODE", "12345678");
+    myCfg.ssid = "C3-SAFE-MODE";
+    myCfg.pass = "12345678";
+    WiFi.softAP(myCfg.ssid, myCfg.pass);
     addToLog("!!! SAFE MODE ACTIEF !!!");
     addToLog("Ga naar 192.168.4.1 en verbind met 'C3-SAFE-MODE' (WW: 12345678)");
     Serial.println("Ga naar 192.168.4.1 en verbind met 'C3-SAFE-MODE' (WW: 12345678)");
   } else {
-    WiFi.begin(myCfg.ssid.c_str(), myCfg.pass.c_str());
+    WiFi.softAP(myCfg.ssid.c_str(), myCfg.pass.c_str());
+    MDNS.begin(myCfg.mdns.c_str());
     //WiFi.setTxPower(WIFI_POWER_8_5dBm);
     int retry = 0;
-    while (WiFi.status() != WL_CONNECTED && retry < 40) {
+    while (!WiFi.softAPSSID().equals(myCfg.ssid) && retry < 40) {
       Serial.print(".");
       delay(1200); retry++;
     }
-    
-    if (WiFi.status() == WL_CONNECTED) {
-      MDNS.begin(myCfg.mdns.c_str());
-      addToLog("WiFi Verbonden! Browser: http://" + myCfg.mdns + ".local");
-      Serial.println("WiFi Verbonden! Browser: http://" + myCfg.mdns + ".local");
-    } else {
-      addToLog("WiFi FOUT. Houd BOOT ingedrukt bij reset voor Safe Mode.");
-      delay(100);
-      safeModeActive = true;
-      WiFi.softAP("C3-SAFE-MODE", "12345678");
-      Serial.println("Forced safe mode. Ga naar 192.168.4.1 en verbind met 'C3-SAFE-MODE' (WW: 12345678)");
-    }
+    addToLog("WiFi available! Browser: http://" + myCfg.mdns + ".local");
+    Serial.println("WiFi available! Browser: http://" + myCfg.mdns + ".local");
   }
 
   // Routes
@@ -414,8 +465,14 @@ void setup() {
     myCfg.baud = baudAsString.toInt(); // Converteer naar integer
     myCfg.parity = server.arg("parity_group").c_str(); // Lees parity_group van formulier
     myCfg.stopBits = server.arg("stopBits_group").c_str(); // Lees stopBits_group van formulier
-    myCfg.dataBits = server.arg("dataBits_group").c_str(); // Lees dataBits_group van formulier 
+    myCfg.dataBits = server.arg("dataBits_group").c_str(); // Lees dataBits_group van formulier
+    Serial.println("parityBits van portaal: " + String(myCfg.parity.c_str()));
+    Serial.println("stopBits van portaal: " + String(myCfg.stopBits.c_str()));
+    Serial.println("dataBits van portaal: " + String(myCfg.dataBits.c_str()));
+    safeModeActive = false; // Zet safe mode uit bij opslaan van nieuwe config
+
     saveToFlash();
+    createHtmlTemplates();
     server.send(200, "text/plain", "Opgeslagen! ESP32 herstart nu...");
     delay(2000); ESP.restart();
   });
@@ -426,6 +483,7 @@ void setup() {
     }
     server.sendHeader("Location", "/"); server.send(303);
   });
+  server.on("/wallclock", [](){ server.send(200, "text/plain", "Hier komen wallclock functies."); });
 
   server.begin();
 }
