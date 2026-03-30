@@ -52,6 +52,7 @@ typedef uint8_t UInt8;
 
 // --- HARDWARE PIN DEFINITIES ---
 #define BOOT_BUTTON_PIN 9   // De fysieke BOOT knop op de C3 SuperMini
+#define RESTART_BUTTON_PIN 0   // De fysieke GPIO0 knop op de C3 SuperMini
 #define UART1_RX 20         // Standaard RX pin voor externe hardware
 #define UART1_TX 21         // Standaard TX pin voor externe hardware
 
@@ -102,6 +103,7 @@ uint8_t bit_arret;
 uint8_t longueur_donnees;
 WebServer server(80);
 String eventLog = "";
+String serverOutput; // Globale variabele om de gegenereerde HTML op te slaan, zodat deze niet bij elke request opnieuw opgebouwd hoeft te worden
 const int maxLogLines = 25;
 bool safeModeActive = false;
 
@@ -112,11 +114,13 @@ std::string dataBitRadioOptions; // Globale variabele om de gegenereerde Data Bi
 String htmlHeaderString; // Globale variabele om de HTML header op te slaan
 String htmlCSS;          // Globale variabele om de CSS op te slaan
 String htmlSafeModeHeader; // Globale variabele om de Safe Mode header op te slaan
-String htmlWifiConfig;   // Globale variabele om de WiFi Config HTML op te slaan
+String htmlWifiConfig;   // Globale variabele om het WiFi Config formulier op te slaan
+String htmlDeviceHeader;   // Globale variabele om de WiFi Config HTML op te slaan
 String htmlUartSend;     // Globale variabele om de UART Send HTML op te slaan
 String htmlLog;          // Globale variabele om de Log HTML op te slaan
 String htmlUploadLogFunction; // Globale variabele om de AJAX upload functie op te slaan
 std::string htmlDateTimeButton_UI; // Globale variabele DateTime submit button te decoreren
+std::string htmlConfigurationButton; // Globale variabele om de configuratie buttons HTML op te slaan
 
 // Pas de selectie aan in de vector op basis van een label-match
 void selectByLabel(std::vector<InputOption>& options, const std::string& targetLabel) {
@@ -278,11 +282,13 @@ const String UI_SAFE_MODE_HEADER = "⚠️ SAFE MODE ACTIEF";
 const String UI_SAFE_MODE_DESC = "Verbonden via Access Point (192.168.4.1)";
 const String UI_TITLE = "ESP32-C3 SuperMini Bridge";
 const String UI_NET_SETTINGS = "📶 Netwerk Instellingen";
+const String UI_DEV_SETTINGS = " 🔧 Instellingen";
 const String UI_UART_COMMAND = "📤 UART Command";
 const String UI_SERIAL_MONITOR = "📟 Seriële Monitor";
 const String UI_SAVE_BUTTON = "Opslaan & Herstarten";
 const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
+const String UI_CONFIG_BUTTON = "<div class='card'><button type='submit' form='uiConfig'>Wijzig</button><form id='uiConfig' method='get' action='/uiConfig'></form></div>";
 
 void createHtmlTemplates() {
 castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
@@ -371,7 +377,7 @@ input[type=text], input[type=password] {
   <h3>)rawliteral" + UI_NET_SETTINGS + R"rawliteral(</h3>
   <form action='/savecfg' method='POST'>
     <label>SSID:<input name='s' type='text' value=')rawliteral" + myCfg.ssid + R"rawliteral(' required></label>
-    <label>Password:<input name='p' type='password' value='********' required></label>
+    <label>Password:<input name='p' type='password' value='/\/\' required></label>
     <label>mDNS:<input name='m' type='text' value=')rawliteral" + myCfg.mdns + R"rawliteral(' required></label>
     <label>Baudrate:<input name='b' type='text' value=')rawliteral" + String(myCfg.baud) + R"rawliteral(' required></label>
     <p>Parity</p>)rawliteral" + parityRadioOptions.c_str() + R"rawliteral(
@@ -381,6 +387,20 @@ input[type=text], input[type=password] {
     <input type='submit' class='btn' value=')rawliteral" + UI_SAVE_BUTTON + R"rawliteral(' style='background:#28a745;'>
     </div>
   </form>
+</div>
+)rawliteral";
+
+htmlDeviceHeader = R"rawliteral(
+<div class='card'>
+  <h3>)rawliteral" + UI_DEV_SETTINGS + R"rawliteral(</h3>
+  <table>
+    <th>Configuratie</th>
+    <tr><td>)rawliteral"+ htmlDateTimeButton_UI.c_str() + R"rawliteral(<td>Versie:</td><td>)rawliteral" + myCfg.version + R"rawliteral(</td></tr>
+    <tr><td>Communicatie:</td><td>BaudRate:</td><td>)rawliteral" + String(myCfg.baud) + R"rawliteral(</td></tr>
+    <tr><td>Data Bits:</td><td>)rawliteral" + myCfg.dataBits + R"rawliteral(</td></tr>
+    <tr><td>Parity:</td><td>)rawliteral" + myCfg.parity + R"rawliteral(</td></tr>
+    <tr>)rawliteral" + UI_CONFIG_BUTTON + R"rawliteral(<td>Stop Bits:</td><td>)rawliteral" + myCfg.stopBits + R"rawliteral(</td></tr>
+  </table>
 </div>
 )rawliteral";
 
@@ -406,6 +426,7 @@ input[type=text], input[type=password] {
 }
 
 void handleRoot() {
+
   createHtmlTemplates(); // Regenerate templates to update dynamic content like clock emoji
   String serverOutput = safeModeActive ? htmlHeaderString + htmlCSS + htmlSafeModeHeader + htmlWifiConfig + htmlUartSend + htmlLog + htmlUploadLogFunction
                                         : htmlHeaderString + htmlCSS + htmlSafeModeHeader + htmlDateTimeButton_UI.c_str() + htmlUartSend + htmlLog + htmlUploadLogFunction;  
@@ -413,11 +434,20 @@ void handleRoot() {
   server.send(200, "text/html; charset=UTF-8", serverOutput);
 }
 
+// Herstart
+void systemRestart() {
+  Serial.println("System restart by button push...");
+  addToLog("System restart by button push...");
+  delay(500);
+  ESP.restart();
+}
+
 // --- SETUP ---
 void setup() {
 
   Serial.begin(115200); // USB-CDC
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(RESTART_BUTTON_PIN, INPUT_PULLUP);
 
   if (!LittleFS.begin(true)) {
     delay(1000);
@@ -459,7 +489,13 @@ void setup() {
   server.on("/getlog", [](){ server.send(200, "text/plain", eventLog); });
   server.on("/savecfg", [](){
     myCfg.ssid = server.arg("s"); // Lees ssid van formulier
-    myCfg.pass = server.arg("p"); // Lees password van formulier
+    String passFromForm = server.arg("p"); // Lees password van formulier
+    if(passFromForm == "/\\/\\") {
+      // Als het wachtwoord veld ongewijzigd is (placeholder), behoud dan het oude wachtwoord
+      Serial.println("Wachtwoord ongewijzigd, behoud huidig wachtwoord.");
+    } else {
+       myCfg.pass = passFromForm; // Lees password van formulier
+    } 
     myCfg.mdns = server.arg("m"); // Lees mDNS van formulier
     String baudAsString = server.arg("b"); // Lees baudrate van formulier
     myCfg.baud = baudAsString.toInt(); // Converteer naar integer
@@ -499,6 +535,9 @@ void loop() {
     Serial.println("UART: " + in);
   }
 
+  if (digitalRead(RESTART_BUTTON_PIN) == LOW) {
+    systemRestart();
+  }
   // USB naar UART1
   if (Serial.available()) {
     String usb = Serial.readStringUntil('\n'); usb.trim();
