@@ -71,7 +71,7 @@ struct Config {
   String ssid = "navtex";
   String pass = "navtex78";
   String mdns = "navtex";
-  long baud = 4800;
+  long baud = 38400;
   String parity = "N"; // N=none, E=even, O=odd
   String stopBits = "1"; // 1, 1.5, 2
   String dataBits = "8"; // 5, 6, 7, 8
@@ -438,8 +438,9 @@ void handleRoot() {
 void systemRestart() {
   Serial.println("System restart by button push...");
   addToLog("System restart by button push...");
+  safeModeActive = true;
   delay(500);
-  ESP.restart();
+  server.sendHeader("Location", "/"); server.send(303);
 }
 
 // --- SETUP ---
@@ -474,7 +475,7 @@ void setup() {
   } else {
     WiFi.softAP(myCfg.ssid.c_str(), myCfg.pass.c_str());
     MDNS.begin(myCfg.mdns.c_str());
-    //WiFi.setTxPower(WIFI_POWER_8_5dBm);
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
     int retry = 0;
     while (!WiFi.softAPSSID().equals(myCfg.ssid) && retry < 40) {
       Serial.print(".");
