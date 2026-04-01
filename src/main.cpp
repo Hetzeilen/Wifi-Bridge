@@ -52,9 +52,8 @@ typedef uint8_t UInt8;
 
 // --- HARDWARE PIN DEFINITIES ---
 #define BOOT_BUTTON_PIN 9   // De fysieke BOOT knop op de C3 SuperMini
-#define RESTART_BUTTON_PIN 0   // De fysieke GPIO0 knop op de C3 SuperMini
-#define UART1_RX 20         // Standaard RX pin voor externe hardware
-#define UART1_TX 21         // Standaard TX pin voor externe hardware
+#define UART1_RX 6          // Standaard RX pin voor externe hardware
+#define UART1_TX 7          // Standaard TX pin voor externe hardware
 
 // --- Hulpstructuren voor HTML formatting
 
@@ -96,8 +95,14 @@ std::vector<InputOption> parityOptions = {
   {"opt3", "O", "Odd",   false}
 };
 
+// We hergebruiken de BOOT knop voor andere functionaliteiten met korte druk
+unsigned long buttonPressedTime = 0;
+const long LONG_PRESS_TIME = 3000; // 3 seconden voor lange druk
+bool isPressing = false;
+int buttonState = 0;
+
 const char* CFG_PATH = "/config.txt";
-byte configuration_UART1 =  0x06; // SERIAL_8N1
+byte configuration_UART =  0x06; // SERIAL_8N1
 uint8_t bit_parite;
 uint8_t bit_arret;
 uint8_t longueur_donnees;
@@ -242,9 +247,21 @@ void loadFromFlash() {
   bit_parite = (myCfg.parity == "N") ? 0 : (myCfg.parity == "E" ? 2 : 3);
   bit_arret = (myCfg.stopBits == "1.5" || myCfg.stopBits == "2") ? 1 : 0;
   longueur_donnees = (myCfg.dataBits == "7") ? 0 : 1; // 0 voor 7 bits, 1 voor 8 bits
+
+  uint8_t parity =
+    (myCfg.parity == "N") ? 0 :
+    (myCfg.parity == "E") ? 2 :
+    (myCfg.parity == "O") ? 3 : 0;
+
+  uint8_t stopbits = (myCfg.stopBits == "2") ? 1 : 0;   // 0 = 1 stop, 1 = 2 stops
+  uint8_t databits = (myCfg.dataBits == "7") ? 0 : 1;   // 0 = 7 bits, 1 = 8 bits
+
   
   // As one-liner:
-  configuration_UART1 = ( ( ( bit_parite * 4 ) + ( longueur_donnees == 7 ? 0 : 2 ) + ( bit_arret ? 1 : 0 ) )[ "emgo\x95\x9D\x97\x9F\x85\x8D\x87\x8F" ] ) - 'a';
+  // configuration_UART1 = ( ( ( bit_parite * 4 ) + ( longueur_donnees == 7 ? 0 : 2 ) + ( bit_arret ? 1 : 0 ) )[ "emgo\x95\x9D\x97\x9F\x85\x8D\x87\x8F" ] ) - 'a';
+  uint8_t configuration_UART =
+    (parity << 2) | (databits << 1) | stopbits;
+
   // Build Parity HTML Radio
   std::string parityStr(myCfg.parity.c_str());
   selectByValue(parityOptions, parityStr);
@@ -435,9 +452,9 @@ void handleRoot() {
 }
 
 // Herstart
-void systemRestart() {
-  Serial.println("System restart by button push...");
-  addToLog("System restart by button push...");
+void systemConfig() {
+  Serial.println("System config by button push...");
+  addToLog("System config by button push...");
   safeModeActive = true;
   delay(500);
   server.sendHeader("Location", "/"); server.send(303);
@@ -448,7 +465,6 @@ void setup() {
 
   Serial.begin(115200); // USB-CDC
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
-  pinMode(RESTART_BUTTON_PIN, INPUT_PULLUP);
 
   if (!LittleFS.begin(true)) {
     delay(1000);
@@ -459,7 +475,7 @@ void setup() {
   createHtmlTemplates();
 
   // Hardware UART1 configuratie
-  Serial1.begin(myCfg.baud, configuration_UART1, UART1_RX, UART1_TX);
+  Serial1.begin(myCfg.baud, SERIAL_8N1, UART1_RX, UART1_TX);
 
   // CHECK VOOR SAFE MODE (BOOT knop ingedrukt tijdens start)
   delay(100);
@@ -496,7 +512,7 @@ void setup() {
       Serial.println("Wachtwoord ongewijzigd, behoud huidig wachtwoord.");
     } else {
        myCfg.pass = passFromForm; // Lees password van formulier
-    } 
+    }
     myCfg.mdns = server.arg("m"); // Lees mDNS van formulier
     String baudAsString = server.arg("b"); // Lees baudrate van formulier
     myCfg.baud = baudAsString.toInt(); // Converteer naar integer
@@ -510,8 +526,12 @@ void setup() {
 
     saveToFlash();
     createHtmlTemplates();
-    server.send(200, "text/plain", "Opgeslagen! ESP32 herstart nu...");
-    delay(2000); ESP.restart();
+    addToLog("Nieuwe configuratie opgeslagen. Herstarten...");
+    Serial.println("Nieuwe configuratie opgeslagen. Herstarten...");
+    server.sendHeader("Location", "/"); server.send(303);
+    Serial1.begin(myCfg.baud, SERIAL_8N1, UART1_RX, UART1_TX);
+    delay(2000);
+    ESP.restart();
   });
   server.on("/write", [](){
     if(server.hasArg("t")){ 
@@ -536,13 +556,35 @@ void loop() {
     Serial.println("UART: " + in);
   }
 
-  if (digitalRead(RESTART_BUTTON_PIN) == LOW) {
-    systemRestart();
+  // Dubbele functionaliteit op BOOT knop: korte druk voor herstart, lange druk voor safe mode toggle
+  buttonState = digitalRead(BOOT_BUTTON_PIN);
+  if (buttonState == LOW && !isPressing) {
+    buttonPressedTime = millis();
+    isPressing = true;
   }
-  // USB naar UART1
+  // Knop wordt vastgehouden: check voor lange druk
+  if (buttonState == LOW && isPressing) {
+    if(millis() - buttonPressedTime >= LONG_PRESS_TIME) {
+      Serial.println("Herstart! Houd ingedrukt voor Bootloader.");
+      addToLog("Herstart! Houd ingedrukt voor Bootloader.");
+      delay(500);
+      ESP.restart(); // De chip herstart nu
+    }
+  }
+  // Knop wordt lostgelaten: check voor korte druk
+  if (buttonState == HIGH && isPressing) {
+    unsigned long holdDuration = millis() - buttonPressedTime;
+    if (holdDuration < LONG_PRESS_TIME) {
+      systemConfig(); // Korte druk: configuratieScherm tonen
+    }
+    isPressing = false;
+  }
+
+  // USB naar UART0
   if (Serial.available()) {
-    String usb = Serial.readStringUntil('\n'); usb.trim();
-    Serial1.println(usb);
+    String usb = Serial.readStringUntil('\n');
+    usb.trim();
+    Serial.println(usb);
     addToLog("<b>USB-IN:</b> " + usb);
   }
 }
