@@ -94,7 +94,8 @@ std::vector<InputOption> parityOptions = {
   {"opt2", "E", "Even", false},
   {"opt3", "O", "Odd",   false}
 };
-
+// Globale variable serverOuput mag reeds voldoende groot gekozen worden
+std::string serverOutput(8192, ' '); // Buffer voor server output, groot genoeg om de volledige HTML pagina te bevatten
 // We hergebruiken de BOOT knop voor andere functionaliteiten met korte druk
 unsigned long buttonPressedTime = 0;
 const long LONG_PRESS_TIME = 3000; // 3 seconden voor lange druk
@@ -102,13 +103,12 @@ bool isPressing = false;
 int buttonState = 0;
 
 const char* CFG_PATH = "/config.txt";
-byte configuration_UART =  0x06; // SERIAL_8N1
+uint8_t configuration_UART =  0x06; // SERIAL_8N1
 uint8_t bit_parite;
 uint8_t bit_arret;
 uint8_t longueur_donnees;
 WebServer server(80);
 String eventLog = "";
-String serverOutput; // Globale variabele om de gegenereerde HTML op te slaan, zodat deze niet bij elke request opnieuw opgebouwd hoeft te worden
 const int maxLogLines = 25;
 bool safeModeActive = false;
 
@@ -222,7 +222,36 @@ void saveToFlash() {
       f.println("8"); // Default to "8" if invalid
     }
     f.close();
+    Serial.println("Configuration saved to flash.");
   }
+  uint8_t parity =
+  (myCfg.parity == "N") ? 0 :
+  (myCfg.parity == "E") ? 2 :
+  (myCfg.parity == "O") ? 3 : 0;
+
+  uint8_t stopbits = (myCfg.stopBits == "2") ? 1 : 0;   // 0 = 1 stop, 1 = 2 stops
+  uint8_t databits = (myCfg.dataBits == "7") ? 0 : 1;   // 0 = 7 bits, 1 = 8 bits
+
+  
+  // As one-liner:
+  // configuration_UART1 = ( ( ( bit_parite * 4 ) + ( longueur_donnees == 7 ? 0 : 2 ) + ( bit_arret ? 1 : 0 ) )[ "emgo\x95\x9D\x97\x9F\x85\x8D\x87\x8F" ] ) - 'a';
+  uint8_t configuration_UART =
+    (parity << 2) | (databits << 1) | stopbits;
+
+  // Build Parity HTML Radio
+  std::string parityStr(myCfg.parity.c_str());
+  selectByValue(parityOptions, parityStr);
+  parityRadioOptions = buildRadioHtml(parityOptions, "parity_group").c_str();
+
+  // Build Stop Bits HTML Dropdown
+  std::string stopBitsStr(myCfg.stopBits.c_str());
+  selectByValue(stopBitOptions, stopBitsStr);
+  stopBitRadioOptions = buildRadioHtml(stopBitOptions, "stopBits_group");
+
+  // Build Data Bits HTML Dropdown
+  std::string dataBitsStr(myCfg.dataBits.c_str());
+  selectByValue(dataBitOptions, dataBitsStr);
+  dataBitRadioOptions = buildRadioHtml(dataBitOptions, "dataBits_group");
 }
 
 void loadFromFlash() {
@@ -244,9 +273,6 @@ void loadFromFlash() {
     myCfg.dataBits = f.readStringUntil('\n'); myCfg.dataBits.trim();
     f.close();
   }
-  bit_parite = (myCfg.parity == "N") ? 0 : (myCfg.parity == "E" ? 2 : 3);
-  bit_arret = (myCfg.stopBits == "1.5" || myCfg.stopBits == "2") ? 1 : 0;
-  longueur_donnees = (myCfg.dataBits == "7") ? 0 : 1; // 0 voor 7 bits, 1 voor 8 bits
 
   uint8_t parity =
     (myCfg.parity == "N") ? 0 :
@@ -289,7 +315,7 @@ void castWallClockTime() {
   int wallClockSecond = timeInfo.tm_sec;
   std::string clockFace = getCurrentClockEmoji(wallClockHour, wallClockMinute); // Voorbeeld: 14:45
   std::string wallClockTime = fmt::format("{:02d}:{:02d}:{:02d}", wallClockHour, wallClockMinute, wallClockSecond);
-  htmlDateTimeButton_UI = fmt::format("<div class='card'><button type='submit' form='wallclock'> {} {}</button><form id='wallclock' method='get' action='/wallclock'></form></div>", clockFace, wallClockTime);
+  htmlDateTimeButton_UI = fmt::format("<button type='submit' form='wallclock'> {} {}</button><form id='wallclock' method='get' action='/wallclock'></form>", clockFace, wallClockTime);
   Serial.print("Casted wallClock: ");
   Serial.println(wallClockTime.c_str());
 }
@@ -305,7 +331,7 @@ const String UI_SERIAL_MONITOR = "📟 Seriële Monitor";
 const String UI_SAVE_BUTTON = "Opslaan & Herstarten";
 const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
-const String UI_CONFIG_BUTTON = "<div class='card'><button type='submit' form='uiConfig'>Wijzig</button><form id='uiConfig' method='get' action='/uiConfig'></form></div>";
+const String UI_CONFIG_BUTTON = "<button type='submit' form='uiConfig'>Wijzig</button><form id='uiConfig' method='get' action='/uiConfig'></form>";
 
 void createHtmlTemplates() {
 castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
@@ -325,7 +351,7 @@ function upLog() {
     });
 }
 setInterval(upLog, 1200);
-</script>
+</script></div>
 )rawliteral";
   // CSS
   const String SAFE_MODE_BG_COLOR = "#fff0f0";
@@ -338,6 +364,15 @@ body {
   font-family: sans-serif;
   background: )rawliteral" + pageBackgroundColor + R"rawliteral(; 
   padding: 15px;
+}
+
+.container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
 }
 .card {
   background: #fff;
@@ -354,14 +389,11 @@ body {
   margin-right: 4%;
 }
 .box {
-  background: #1e1e1e;
-  color: #0f0;
-  padding: 10px;
-  height: 280px;
-  overflow-y: auto;
-  font-family: monospace;
-  border-radius: 5px;
-  white-space: pre-wrap;
+  flex: 1 1 300px;
+  background: #f4f4f4;
+  border: 1px solid #ccc;
+  padding: 20px;
+  border-radius: 8px;
 }
 input[type=text], input[type=password] {
   width: 100%;
@@ -390,7 +422,7 @@ input[type=text], input[type=password] {
 
   // WiFi Config
   htmlWifiConfig = R"rawliteral(
-<div class='card'>
+<div class='container'><div class='box'>
   <h3>)rawliteral" + UI_NET_SETTINGS + R"rawliteral(</h3>
   <form action='/savecfg' method='POST'>
     <label>SSID:<input name='s' type='text' value=')rawliteral" + myCfg.ssid + R"rawliteral(' required></label>
@@ -408,7 +440,7 @@ input[type=text], input[type=password] {
 )rawliteral";
 
 htmlDeviceHeader = R"rawliteral(
-<div class='card'>
+<div class='container'><div class='box'>
   <h3>)rawliteral" + UI_DEV_SETTINGS + R"rawliteral(</h3>
   <table>
     <th>Configuratie</th>
@@ -423,7 +455,7 @@ htmlDeviceHeader = R"rawliteral(
 
   // UART Send
   htmlUartSend = R"rawliteral(
-<div class='card'>
+</div><div class='container'><div class='box'>
   <h3>)rawliteral" + UI_UART_COMMAND + R"rawliteral(</h3>
   <form action='/write' method='POST'>
     <label><input type='text' name='t' id='command' placeholder=')rawliteral" + UI_PLACEHOLDER + R"rawliteral('>Command:</label>
@@ -434,7 +466,7 @@ htmlDeviceHeader = R"rawliteral(
 
   // Log
   htmlLog = R"rawliteral(
-<div class='card'>
+<div class='box'>
   <h3>)rawliteral" + UI_SERIAL_MONITOR + R"rawliteral(</h3>
   <div id='lb' class='box'>)rawliteral" + eventLog + R"rawliteral(</div>
 </div>
@@ -443,12 +475,14 @@ htmlDeviceHeader = R"rawliteral(
 }
 
 void handleRoot() {
-
+  serverOutput.clear(); // Clear buffer before generating new output
   createHtmlTemplates(); // Regenerate templates to update dynamic content like clock emoji
-  String serverOutput = safeModeActive ? htmlHeaderString + htmlCSS + htmlSafeModeHeader + htmlWifiConfig + htmlUartSend + htmlLog + htmlUploadLogFunction
-                                        : htmlHeaderString + htmlCSS + htmlSafeModeHeader + htmlDateTimeButton_UI.c_str() + htmlUartSend + htmlLog + htmlUploadLogFunction;  
-  
-  server.send(200, "text/html; charset=UTF-8", serverOutput);
+  if (safeModeActive) {
+    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlLog, htmlUploadLogFunction);
+  } else {
+    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlDeviceHeader, htmlUartSend, htmlLog, htmlUploadLogFunction);
+  } 
+  server.send(200, "text/html; charset=UTF-8", serverOutput.c_str());
 }
 
 // Herstart
