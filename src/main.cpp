@@ -19,6 +19,9 @@
 #include <time.h>
 //#include <print>
 #include <fmt.h>
+#include <Wire.h>
+#include <RTClib.h>
+#include <TimeLib.h>
 
 const char*  clockFaces[] PROGMEM = {
   "\xF0\x9F\x95\x9B", // 12:00
@@ -51,9 +54,12 @@ struct tm timeInfo;
 typedef uint8_t UInt8;
 
 // --- HARDWARE PIN DEFINITIES ---
-#define BOOT_BUTTON_PIN 9   // De fysieke BOOT knop op de C3 SuperMini
+#define BOOT_BUTTON_PIN 10   // De fysieke BOOT knop op de C3 SuperMini
 #define UART1_RX 6          // Standaard RX pin voor externe hardware
 #define UART1_TX 7          // Standaard TX pin voor externe hardware
+#define SDA 10               // I2C SDA pin voor RTC
+#define SCL 1               // I2C SCL pin voor RTC
+#define RTC_DS3231_ADDRESS 0x68 // I2C adres van de DS3231 RTC
 
 // --- Hulpstructuren voor HTML formatting
 
@@ -66,7 +72,7 @@ struct InputOption {
 
 // --- CONFIGURATIE STRUCTUUR ---
 struct Config {
-  String version = "v1";
+  String version = "v2";
   String ssid = "navtex";
   String pass = "navtex78";
   String mdns = "navtex";
@@ -74,6 +80,7 @@ struct Config {
   String parity = "N"; // N=none, E=even, O=odd
   String stopBits = "1"; // 1, 1.5, 2
   String dataBits = "8"; // 5, 6, 7, 8
+  String hasRTC = "0"; // "0" = geen RTC, "1" = RTC aanwezig
 } myCfg;
 
 std::vector<InputOption> stopBitOptions = {
@@ -107,8 +114,10 @@ uint8_t configuration_UART =  0x06; // SERIAL_8N1
 uint8_t bit_parite;
 uint8_t bit_arret;
 uint8_t longueur_donnees;
+// Provide RealTime Clock DS3231 support via I2C
+RTC_DS3231 rtc;
 WebServer server(80);
-String eventLog = "";
+String eventLog = ""; // Reserveer geheugen voor logboek, voorkomt fragmentatie
 const int maxLogLines = 25;
 bool safeModeActive = false;
 
@@ -183,10 +192,17 @@ void createParityOptions() {
   //std::string dropdown = buildDropdownHtml(myOptions, "drank_select");
   std::string radio    = buildRadioHtml(parityOptions, "parity_group");
 }
+// Sync provider voor TimeLib
+time_t getRtcTime() { return rtc.now().unixtime(); }
+
+// --- Hulpfuncties voor time sync
 
 // --- HULPFUNCTIES VOOR LOGBOEK ---
 void addToLog(String msg) {
-  eventLog += "[" + String(millis()/1000) + "s] " + msg + "<br>";
+  time_t now_ts = now();
+  // Formatteer de huidige tijd zodat de logger deze herkent
+  std::string regel = fmt::format("[{:04d}{:02d}{:02d}:{:02d}{:02d}] {}<br>", year(now_ts), month(now_ts), day(now_ts), hour(now_ts), minute(now_ts), msg.c_str());
+  eventLog += regel.c_str();
   int pos = 0, count = 0;
   while ((pos = eventLog.indexOf("<br>", pos + 1)) != -1) count++;
   if (count > maxLogLines) {
@@ -220,6 +236,14 @@ void saveToFlash() {
       f.println(myCfg.dataBits);
     } else {
       f.println("8"); // Default to "8" if invalid
+    }
+    if (myCfg.version == "v2") {
+      std::vector<String> validRTCStatus = {"0", "1"};
+      if (find(validRTCStatus.begin(), validRTCStatus.end(), myCfg.hasRTC) != validRTCStatus.end()) {
+        f.println(myCfg.hasRTC);
+      } else {
+        f.println("0"); // Default to "0" if invalid
+      }
     }
     f.close();
     Serial.println("Configuration saved to flash.");
@@ -271,6 +295,9 @@ void loadFromFlash() {
     myCfg.parity = f.readStringUntil('\n'); myCfg.parity.trim(); // Parity als string (N, E, O)
     myCfg.stopBits = f.readStringUntil('\n'); myCfg.stopBits.trim();
     myCfg.dataBits = f.readStringUntil('\n'); myCfg.dataBits.trim();
+    if (myCfg.version == "v2") {
+      myCfg.hasRTC = f.readStringUntil('\n'); myCfg.hasRTC.trim();
+    }
     f.close();
   }
 
@@ -308,14 +335,13 @@ void loadFromFlash() {
 // Cast wallclock time to global variable and update Html button representation
 void castWallClockTime() {
   // Obtain proper clock face based on current time
-  time_t now = time(nullptr);
-  localtime_r(&now, &timeInfo);
-  int wallClockHour = timeInfo.tm_hour;
-  int wallClockMinute = timeInfo.tm_min; 
-  int wallClockSecond = timeInfo.tm_sec;
+  time_t now_ts = now();
+  int wallClockHour = hour(now_ts);
+  int wallClockMinute = minute(now_ts);
+  int wallClockSecond = second(now_ts);
   std::string clockFace = getCurrentClockEmoji(wallClockHour, wallClockMinute); // Voorbeeld: 14:45
   std::string wallClockTime = fmt::format("{:02d}:{:02d}:{:02d}", wallClockHour, wallClockMinute, wallClockSecond);
-  htmlDateTimeButton_UI = fmt::format("<button type='submit' form='wallclock'> {} {}</button><form id='wallclock' method='get' action='/wallclock'></form>", clockFace, wallClockTime);
+  htmlDateTimeButton_UI = fmt::format("<div class='box'><button onclick='window.location=\"/getclock\"'> {} {}</button></div>", clockFace, wallClockTime);
   Serial.print("Casted wallClock: ");
   Serial.println(wallClockTime.c_str());
 }
@@ -326,12 +352,13 @@ const String UI_SAFE_MODE_DESC = "Verbonden via Access Point (192.168.4.1)";
 const String UI_TITLE = "ESP32-C3 SuperMini Bridge";
 const String UI_NET_SETTINGS = "📶 Netwerk Instellingen";
 const String UI_DEV_SETTINGS = " 🔧 Instellingen";
+const String UI_CLOCK_SETTINGS = " ⏰ Klok Instellingen";
 const String UI_UART_COMMAND = "📤 UART Command";
 const String UI_SERIAL_MONITOR = "📟 Seriële Monitor";
 const String UI_SAVE_BUTTON = "Opslaan & Herstarten";
 const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
-const String UI_CONFIG_BUTTON = "<button type='submit' form='uiConfig'>Wijzig</button><form id='uiConfig' method='get' action='/uiConfig'></form>";
+const String UI_CONFIG_BUTTON = "<div class='box'><button onclick='window.location=\"/device\"'>Apparaat</button></div>";
 
 void createHtmlTemplates() {
 castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
@@ -434,6 +461,7 @@ input[type=text], input[type=password] {
     <p>Stop Bits</p>)rawliteral" + stopBitRadioOptions.c_str() + R"rawliteral(</label>
     <div class='secDiv'>
     <input type='submit' class='btn' value=')rawliteral" + UI_SAVE_BUTTON + R"rawliteral(' style='background:#28a745;'>
+    <div class='box'><button onclick='window.location=\"/"'>Hoofdmenu</button></div>
     </div>
   </form>
 </div>
@@ -505,6 +533,58 @@ void setup() {
     Serial.println("FS Fout");
     return;
   }
+
+  // RTC Initialisatie
+  Wire.begin(SDA, SCL);
+  Wire.beginTransmission(RTC_DS3231_ADDRESS);
+  byte RTC_endTransmission = Wire.endTransmission();
+  int RTC_status = (RTC_endTransmission == 0) ? 1 : 0; // 1 = RTC gevonden, 0 = RTC niet gevonden
+  if (!RTC_status) {
+    Serial.println("RTC niet gevonden op I2C bus");
+    addToLog("RTC niet gevonden op I2C bus");
+  } else {
+    Serial.println("RTC gevonden op I2C bus");
+    addToLog("RTC gevonden op I2C bus");
+  }
+  bool signalHardwareChange = false; // Variabele om aan te geven dat er nieuwe hardware is gedetecteerd, kan later worden gebruikt voor notificaties
+  if (myCfg.hasRTC == "1" && !RTC_status) {
+    // Als de configuratie aangeeft dat er een RTC is, maar we kunnen deze niet bereiken, log dan een fout
+    Serial.println("Configuratie geeft aan dat er een RTC is, maar deze is niet bereikbaar.");
+    addToLog("Configuratie geeft aan dat er een RTC is, maar deze is niet bereikbaar.");
+    signalHardwareChange = true; // We geven aan dat de hardware niet meer bereikbaar is
+  } else if (myCfg.hasRTC == "0" && RTC_status) {
+    // Als de configuratie aangeeft dat er geen RTC is, maar we kunnen er wel een bereiken, log dan een waarschuwing
+    Serial.println("Nieuw apparaat (RTC) gevonden.)");
+    addToLog("Nieuw apparaat (RTC) gevonden.");
+    signalHardwareChange = true; // Deze variabele kan later worden gebruikt om gebruikers te informeren over nieuwe hardware detectie, bijvoorbeeld via een melding op de webinterface
+  }
+  myCfg.hasRTC = (RTC_status) ? "1" : "0"; // Update configuratie op basis van RTC detectie
+
+  if (!rtc.begin()) {
+    Serial.println("RTC niet gevonden");
+    addToLog("RTC niet gevonden");
+    myCfg.hasRTC = "0"; // Update configuratie alsnog RTC niet gevonden
+    signalHardwareChange = true; // Geef aan dat er een hardware verandering is, kan later worden gebruikt voor notificaties
+  } else {
+    if (rtc.lostPower()) {
+      Serial.println("RTC heeft stroom verloren, tijd opnieuw instellen.");
+      addToLog("RTC heeft stroom verloren, tijd opnieuw instellen.");
+      DateTime fallBackTime = DateTime(F(__DATE__), F(__TIME__)); // Compileertijd als fallback
+      rtc.adjust(fallBackTime);
+      setTime(fallBackTime.unixtime());
+    }
+    setSyncProvider(getRtcTime);
+    setSyncInterval(300); // Sync elke 5 minuten
+    if (timeStatus() != timeSet) {
+      Serial.println("RTC tijd niet gesynchroniseerd");
+      addToLog("RTC tijd niet gesynchroniseerd");
+    }
+  }
+  if (signalHardwareChange) {
+    saveToFlash(); // Sla de bijgewerkte configuratie op als er een verandering in hardware status is gedetecteerd
+    signalHardwareChange = false; // Reset de hardware change indicator
+  }
+  
   loadFromFlash();
   createHtmlTemplates();
 
@@ -536,9 +616,9 @@ void setup() {
   }
 
   // Routes
-  server.on("/", handleRoot);
-  server.on("/getlog", [](){ server.send(200, "text/plain", eventLog); });
-  server.on("/savecfg", [](){
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/getlog", HTTP_GET, [](){ server.send(200, "text/plain", eventLog); });
+  server.on("/savecfg", HTTP_POST, [](){
     myCfg.ssid = server.arg("s"); // Lees ssid van formulier
     String passFromForm = server.arg("p"); // Lees password van formulier
     if(passFromForm == "/\\/\\") {
@@ -574,7 +654,85 @@ void setup() {
     }
     server.sendHeader("Location", "/"); server.send(303);
   });
-  server.on("/wallclock", [](){ server.send(200, "text/plain", "Hier komen wallclock functies."); });
+  server.on("/getclock", HTTP_GET, [](){
+    serverOutput.clear();
+    time_t now_ts = now();
+ 
+    // Formatteer de huidige tijd zodat de picker deze als 'default' herkent
+    std::string datum = fmt::format("{:04d}-{:02d}-{:02d}", year(now_ts), month(now_ts), day(now_ts));
+    std::string tijd = fmt::format("{:02d}:{:02d}",hour(now_ts), minute(now_ts));
+    String htmlGetTimeDateForm = R"rawliteral(
+<div class='container'><div class='box'>
+  <h3>)rawliteral" + UI_CLOCK_SETTINGS + R"rawliteral(</h3>
+    <form action='/setclock' method='POST'>
+    Kies datum & tijd: <br><br>
+      <input type="date" id="date" required placeholder=")rawliteral" + datum.c_str() + R"rawliteral(">
+      <span>@</span>
+      <input type="time" id="time" step="60" required placeholder=")rawliteral" + tijd.c_str() + R"rawliteral(">
+    <input id='dt' name="dt" type="hidden">
+    <br><br><button type='submit' class='btn' value='Opslaan'></button></form>
+<script>
+  function updateDT() {
+      const d = document.getElementById("date").value;   // yyyy-mm-dd
+      const t = document.getElementById("time").value;   // hh:mm
+      if (d && t) {
+          const iso = `${d}T${t}`;
+          document.getElementById("dt").value = iso;
+      }
+  }
+  document.getElementById("date").addEventListener("input", updateDT);
+  document.getElementById("time").addEventListener("input", updateDT);
+</script>
+    </div><div class='box'><button onclick="window.location='/'">Hoofdmenu</button></div>)rawliteral";
+    
+    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlGetTimeDateForm, htmlUartSend, htmlLog, htmlUploadLogFunction);
+    server.send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+  });
+  server.on("/setclock", HTTP_POST, []() {
+    if (server.hasArg("dt")) {
+      String dt = server.arg("dt"); // Voorbeeld: "2023-10-27T14:30"
+      // We gebruiken .substring of sscanf om de string te ontleden
+      // Formaat: 0123 4 56 7 89 0 12 3 45
+      //          YYYY - MM - DD T HH : MM
+      int j   = dt.substring(0, 4).toInt();
+      int m   = dt.substring(5, 7).toInt();
+      int d   = dt.substring(8, 10).toInt();
+      int hh  = dt.substring(11, 13).toInt();
+      int mm  = dt.substring(14, 16).toInt();
+
+      // 1. Update RTC
+      if (myCfg.hasRTC == "1") {
+        rtc.adjust(DateTime(j, m, d, hh, mm, 0));
+        // 2. Update Systeemklok
+        setTime(rtc.now().unixtime());
+      }
+      // Systeemtijd bijwerken, maar deze zal verloren gaan bij herstart
+      struct tm t = {0};
+      t.tm_year = j - 1900;   // years since 1900
+      t.tm_mon  = m - 1;      // 0–11
+      t.tm_mday = d;          // 1–31
+      t.tm_hour = hh;         // 0–23
+      t.tm_min  = mm;         // 0–59
+      t.tm_sec  = 0;
+      time_t ts = mktime(&t);   // or maketime(&t) depending on your core
+
+      setTime(ts); // timeLib allows this
+      
+      addToLog("Klok bijgewerkt naar: " + dt);
+      Serial.println("Klok bijgewerkt naar: " + dt);
+      server.sendHeader("Location", "/getclock"); server.send(303);
+    } else {
+      addToLog("Foutieve klok parameters ontvangen.");
+      Serial.println("Foutieve klok parameters ontvangen.");
+      server.sendHeader("Location", "/"); server.send(303);
+
+    }
+  });
+  server.on("/device", HTTP_GET, [](){
+    serverOutput.clear(); // Clear buffer before generating new output
+    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlLog, htmlUploadLogFunction);
+    server.send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+  });
 
   server.begin();
 }
