@@ -387,12 +387,12 @@ const String UI_SERIAL_MONITOR = "📟 Seriële Monitor";
 const String UI_SAVE_BUTTON = "Opslaan & Herstarten";
 const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
-const String UI_CONFIG_BUTTON = "<div class='box'><button onclick='window.location=\"/device\"'>Apparaat</button></div>";
+const String UI_CONFIG_BUTTON = "<div class='box'><button onclick='window.location=\"/device\"'>Wijzig</button></div>";
 
 void createHtmlTemplates() {
 castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
 
-htmlHeaderString = "<html><head><title>C3 Bridge</title><meta name='viewport' content='width=device-width, initial-scale=1'>";
+htmlHeaderString = "<!DOCTYPE html><html lang=nl><head><title>C3 Bridge</title><meta name='viewport' charset='UTF-8' content='width=device-width, initial-scale=1'>";
   // AJAX Script
 htmlUploadLogFunction = R"rawliteral(
 <script>
@@ -466,6 +466,53 @@ input[type=text], input[type=password] {
   cursor: pointer;
   width: 100%;
 }
+.custom-check {
+  display: none;
+}
+
+/* Standaard stijl van de 'knop' (het label) */
+.knop-stijl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background-color: #f0f0f0;
+  border: 2px solid #ccc;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: all 0.3s;
+}
+
+/* Symbool voor de checkbox (unchecked) */
+.status-icon::before {
+  content: "☐";
+  margin-right: 8px;
+}
+
+/* Het element dat we willen verbergen */
+.content {
+  display: none;
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #e7f3fe;
+  border-left: 6px solid #2196F3;
+}
+
+/* DE MAGIE: Als de checkbox GECHECKED is */
+.custom-check:checked + .knop-stijl {
+  background-color: #4CAF50;
+  color: white;
+  border-color: #388E3C;
+}
+
+.custom-check:checked + .knop-stijl .status-icon::before {
+  content: "☑";
+}
+
+.custom-check:checked ~ .content {
+  display: block;
+}
+
 </style>
 </head><body>
   )rawliteral";
@@ -499,25 +546,41 @@ input[type=text], input[type=password] {
 htmlDeviceHeader = R"rawliteral(
 <div class='container'><div class='box'>
   <h3>)rawliteral" + UI_DEV_SETTINGS + R"rawliteral(</h3>
-  <table>
-    <th>Configuratie</th>
-    <tr><td>)rawliteral"+ htmlDateTimeButton_UI.c_str() + R"rawliteral(<td>Versie:</td><td>)rawliteral" + myCfg.version + R"rawliteral(</td></tr>
+  <!-- Toggle: Instellingen -->
+  <input type="checkbox" id="instToggle" class="custom-check">
+  <label for="instToggle" class="knop-stijl">
+    <span class="status-icon"></span>
+    Uitklappen
+  </label>
+  <div class="content"><p>
+  <table><tbody><tr><th>Configuratie</th></tr>
+    <tr><td>)rawliteral"+ htmlDateTimeButton_UI.c_str() + R"rawliteral(</td><td>Versie:</td><td>)rawliteral" + myCfg.version + R"rawliteral(</td></tr>
     <tr><td>Communicatie:</td><td>BaudRate:</td><td>)rawliteral" + String(myCfg.baud) + R"rawliteral(</td></tr>
-    <tr><td>Data Bits:</td><td>)rawliteral" + myCfg.dataBits + R"rawliteral(</td></tr>
-    <tr><td>Parity:</td><td>)rawliteral" + myCfg.parity + R"rawliteral(</td></tr>
-    <tr>)rawliteral" + UI_CONFIG_BUTTON + R"rawliteral(<td>Stop Bits:</td><td>)rawliteral" + myCfg.stopBits + R"rawliteral(</td></tr>
-  </table>
+    <tr><td></td><td>Data Bits:</td><td>)rawliteral" + myCfg.dataBits + R"rawliteral(</td></tr>
+    <tr><td></td><td>Parity:</td><td>)rawliteral" + myCfg.parity + R"rawliteral(</td></tr>
+    <tr><td></td><td>Stop Bits:</td><td>)rawliteral" + myCfg.stopBits + R"rawliteral(</td></tr>
+    </tbody>
+  </table>)rawliteral" + UI_CONFIG_BUTTON + R"rawliteral(</p>
+</div>
 </div>
 )rawliteral";
 
   // UART Send
   htmlUartSend = R"rawliteral(
-</div><div class='container'><div class='box'>
+<div class='container'><div class='box'>
   <h3>)rawliteral" + UI_UART_COMMAND + R"rawliteral(</h3>
+  <!-- Toggle: UART Command -->
+  <input type="checkbox" id="uartToggle" class="custom-check">
+  <label for="uartToggle" class="knop-stijl">
+    <span class="status-icon"></span>
+    Toon UART opties
+  </label>
+  <div class="content"><p>Command:
   <form action='/write' method='POST'>
-    <label><input type='text' name='t' id='command' placeholder=')rawliteral" + UI_PLACEHOLDER + R"rawliteral('>Command:</label>
+    <label><input type='text' name='t' id='command' placeholder=')rawliteral" + UI_PLACEHOLDER + R"rawliteral('></label>
     <input type='submit' class='btn' value=')rawliteral" + UI_SEND_BUTTON + R"rawliteral('>
   </form>
+  </p></div>
 </div>
 )rawliteral";
 
@@ -774,6 +837,16 @@ void setup() {
     serverOutput.clear(); // Clear buffer before generating new output
     fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlLog, htmlUploadLogFunction);
     server.send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+  });
+  // Serve favicon
+  server.on("/favicon.ico", HTTP_GET, []() {
+    File file = LittleFS.open("/favicon.ico", "r");
+    if (!file) {
+      server.send(404, "text/plain", "Favicon not found");
+      return;
+    }
+    server.streamFile(file, "image/x-icon");
+    file.close();
   });
 
   server.begin();

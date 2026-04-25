@@ -27,7 +27,7 @@ I2C SDA & SCL have been allocated to preserve SPI interface (which is sharing te
 | VCC           | 3.3V (Pin 3) | Components VCC (RTC, UART) |
 | SCL           | GPIO1 | I2C SCL |
 | SDA           | GPIO10 | I2C SDA |
-| BOOT          | GPIO10 | momentary pushbutton |
+| BOOT          | GPIO9 | momentary pushbutton |
 | UART1 RX      | GPIO6 | Serial port RX in |
 | UART1 TX      | GPIO7 | Serial port TX out |
 | DS3231 RTC    | Address 0x68 | I2C RTC |
