@@ -19,6 +19,7 @@
 #include <LittleFS.h>
 #include <ESPmDNS.h>
 #include <iostream>
+#include <map>
 #include <vector>
 #include <string>
 
@@ -74,6 +75,33 @@ struct InputOption {
     bool isSelected;
 };
 
+// =========================
+// HASH FUNCTION (FNV-1a)
+// =========================
+
+uint32_t fnv1aHash(const String& s) {
+    uint32_t hash = 0x811C9DC5;
+    for (size_t i = 0; i < s.length(); i++) {
+        hash ^= (uint8_t)s[i];
+        hash *= 0x01000193;
+    }
+    return hash;
+}
+// =========================
+// NAVTEX MESSAGE STRUCTURE
+// =========================
+
+struct NavtexMessage {
+  String raw;               // full NAVTEX message text block (for this station)
+  String messageKey;        // EA99, GA47, TD42, ...
+  bool markedForViewing;    // checkbox flag. When true expand, otherwise collapse
+  NavtexMessage* next;
+
+  NavtexMessage(const String& message, const String& key)
+    : raw(message), messageKey(key), markedForViewing(false), next(nullptr) {}
+};
+
+
 // --- CONFIGURATIE STRUCTUUR ---
 struct Config {
   String version = "v2";
@@ -85,6 +113,8 @@ struct Config {
   String stopBits = "1"; // 1, 1.5, 2
   String dataBits = "8"; // 5, 6, 7, 8
   String hasRTC = "0"; // "0" = geen RTC, "1" = RTC aanwezig
+  String stationCodeToFilter = "T"; // Default to Oostende Radio
+  String subjectIndicatorToFilter = "A"; // Default to Navigational Warnings
 } myCfg;
 
 std::vector<InputOption> stopBitOptions = {
@@ -105,6 +135,27 @@ std::vector<InputOption> parityOptions = {
   {"opt2", "E", "Even", false},
   {"opt3", "O", "Odd",   false}
 };
+
+// Hier komen de Navtex Subject Indicator Characters
+std::vector<InputOption> subjectIndicators = {
+  {"opt1", "A", "Navigational Warnings", false},
+  {"opt2", "B", "Meteorological Warnings", false},
+  {"opt3", "C", "Ice Reports", false},
+  {"opt4", "D", "Search & Rescue Information, and pirate attack warnings", false},
+  {"opt5", "E", "Meteorological Forecasts", false},
+  {"opt6", "F", "Pilot service Messages", false},
+  {"opt7", "G", "DECCA Messages", false},
+  {"opt8", "H", "LORAN Messages", false},
+  {"opt9", "J", "SATNAV Messages", false},
+  {"opt10","K", "Other Electronic Navaid Messages", false},
+  {"opt11","L", "Navigational warnings additional to letter A", false},
+  {"opt12","V", "Special Services Allocated by NAVTEX Panel (V)", false},
+  {"opt13","W", "Special Services Allocated by NAVTEX Panel (W)", false},
+  {"opt14","X", "Special Services Allocated by NAVTEX Panel (X)", false},
+  {"opt15","Y", "Special Services Allocated by NAVTEX Panel (Y)", false},
+  {"opt16","Z", "No messages on hand.", false} 
+};
+
 // Globale variable serverOuput mag reeds voldoende groot gekozen worden
 std::string serverOutput(8192, ' '); // Buffer voor server output, groot genoeg om de volledige HTML pagina te bevatten
 // We hergebruiken de BOOT knop voor andere functionaliteiten met korte druk
@@ -140,6 +191,98 @@ String htmlUploadLogFunction; // Globale variabele om de AJAX upload functie op 
 std::string htmlDateTimeButton_UI; // Globale variabele DateTime submit button te decoreren
 std::string htmlConfigurationButton; // Globale variabele om de configuratie buttons HTML op te slaan
 
+NavtexMessage* head = nullptr;
+std::map<String, NavtexMessage*> messageIndex;
+uint32_t lastHash = 0;   // hash of previous $S transmission
+String textBlock = String(' ', 4096); // reserve a text block
+String singleMsg = String(' ', 1024); // reserve a single message
+std::string htmlSubjectIndicatorDropdownOptions; // Globale variable om de gegenereerde Subject Indicator Dropdown HTML op te slaan
+
+// =========================
+// FIND NAVTEX MESSAGE BY KEY
+// =========================
+NavtexMessage* findNavtexMessage(const String& messageKey) {
+  auto indexEntry = messageIndex.find(messageKey);
+  return indexEntry == messageIndex.end() ? nullptr : indexEntry->second;
+}
+
+// =========================
+// EXTRACT STATION CODE
+// =========================
+
+String extractStation(const char *line) {
+    if (line[0] == '>' && strlen(line) >= 3) {
+      // Station is a single char
+        return String(line[1]);
+    }
+    return "/"; // Default value if not found
+};
+
+// =========================
+// EXTRACT MESSAGE KEY
+// =========================
+String extractMessageKey(const String& message) {
+  if (!message.startsWith(">") || message.length() < 5) {
+    return "";
+  }
+
+  int lineEnd = message.indexOf('\n');
+  if (lineEnd == -1) {
+    lineEnd = message.length();
+  }
+
+  return lineEnd >= 5 ? message.substring(1, 5) : "";
+}
+
+// =========================
+// EXTRACT Subject Indicator Character
+// =========================
+
+String extractSubjectIndicator(const char *line) {
+    if (line[0] == '>' && strlen(line) >= 3) {
+      // Subject is a single char
+        return String(line[2]);
+    }
+    return "/"; // Default value if not found
+};
+
+// =========================
+// ADD MESSAGE TO LINKED LIST
+// =========================
+
+void addNavtexMessage(const String& msg) {
+  String messageKey = extractMessageKey(msg);
+
+  if (!head) {
+    NavtexMessage* newMsg = new NavtexMessage(msg, messageKey);
+    head = newMsg;
+    if (messageKey.length() > 0) {
+      messageIndex.emplace(messageKey, newMsg);
+    };
+    Serial.println("Start van linked list met eerste NAVTEX bericht");
+    Serial.println(msg);
+  } else {
+    if (messageKey.length() > 0 && messageIndex.find(messageKey) != messageIndex.end()) {
+      Serial.println("Duplicaat bericht gevonden, niet toegevoegd. Sleutel: " + messageKey);
+      return;
+    } else {
+      NavtexMessage* newMsg = new NavtexMessage(msg, messageKey);
+      NavtexMessage* cur = head;
+      while (cur->next) cur = cur->next;
+      cur->next = newMsg;
+      if (messageKey.length() > 0) {
+        messageIndex.emplace(messageKey, newMsg);
+      };
+      Serial.println("NAVTEX bericht toegevoegd aan linked list. Sleutel: " + messageKey);
+    }
+  }
+
+
+
+  Serial.println("NAVTEX message added:");
+  Serial.println(msg);
+}
+
 // Pas de selectie aan in de vector op basis van een label-match
 void selectByLabel(std::vector<InputOption>& options, const std::string& targetLabel) {
     for (auto& opt : options) {
@@ -149,7 +292,7 @@ void selectByLabel(std::vector<InputOption>& options, const std::string& targetL
 }
 
 // Pas de selectie aan in de vector op basis van een value-match
-void selectByValue(std::vector<InputOption>& options, std::string& targetValue) {
+void selectByValue(std::vector<InputOption>& options, const std::string& targetValue) {
     for (auto& opt : options) {
         // Zet op true als value matcht, anders op false (radio-logica)
         opt.isSelected = (strcmp(opt.value.c_str(), targetValue.c_str()) == 0);
@@ -166,13 +309,14 @@ const char* getCurrentClockEmoji(const int hour, const int minute) {
 }
 
 // Genereer HTML Dropdown string
-std::string buildDropdownHtml(const std::vector<InputOption>& options, const std::string& name) {
+std::string buildDropdownHtml(const std::vector<InputOption>& options, const std::string& groupName) {
     std::string rows;
     for (const auto& opt : options) {
         rows += fmt::format("  <option value=\"{}\"{}>{}</option>\n", 
-                            opt.value, opt.isSelected ? " selected" : "", opt.label);                 
+                            opt.value, opt.isSelected ? " selected" : "", opt.label); 
+        rows += fmt::format("  <label for=\"{}\">{}</label><br>\n", opt.id, opt.label);                
     }
-    return fmt::format("<select name=\"{}\">\n{}</select>", name, rows);
+    return fmt::format("<select name=\"{}\">\n{}</select>", groupName, rows);
 }
 
 // Genereer HTML Radio string
@@ -271,17 +415,22 @@ void saveToFlash() {
   // Build Parity HTML Radio
   std::string parityStr(myCfg.parity.c_str());
   selectByValue(parityOptions, parityStr);
-  parityRadioOptions = buildRadioHtml(parityOptions, "parity_group").c_str();
+  parityRadioOptions = buildRadioHtml(parityOptions, "parity_group");
 
-  // Build Stop Bits HTML Dropdown
+  // Build Stop Bits HTML Radio Buttons
   std::string stopBitsStr(myCfg.stopBits.c_str());
   selectByValue(stopBitOptions, stopBitsStr);
   stopBitRadioOptions = buildRadioHtml(stopBitOptions, "stopBits_group");
 
-  // Build Data Bits HTML Dropdown
+  // Build Data Bits HTML Radio Buttons
   std::string dataBitsStr(myCfg.dataBits.c_str());
   selectByValue(dataBitOptions, dataBitsStr);
   dataBitRadioOptions = buildRadioHtml(dataBitOptions, "dataBits_group");
+
+  // Build Subject Indicator HTML Dropdown
+  std::string subjectIndicatorToFilterStr(myCfg.subjectIndicatorToFilter.c_str());
+  selectByValue(subjectIndicators, subjectIndicatorToFilterStr);
+  htmlSubjectIndicatorDropdownOptions = buildDropdownHtml(subjectIndicators, "subjectIndicator_group");
 }
 
 void loadFromFlash() {
@@ -302,7 +451,13 @@ void loadFromFlash() {
     myCfg.stopBits = f.readStringUntil('\n'); myCfg.stopBits.trim();
     myCfg.dataBits = f.readStringUntil('\n'); myCfg.dataBits.trim();
     myCfg.hasRTC = f.readStringUntil('\n'); myCfg.hasRTC.trim();
-
+    // For the moment, this version of myCfg does not store stationCodeToFilter nor subjectIndicatorToFilter
+    myCfg.stationCodeToFilter = "T"; // Default to Oostende Radio
+    myCfg.subjectIndicatorToFilter = "A"; // Default to Navigational Warnings
+      // Build Subject Indicator HTML Dropdown
+    std::string subjectIndicatorToFilterStr(myCfg.subjectIndicatorToFilter.c_str());
+    selectByValue(subjectIndicators, subjectIndicatorToFilterStr);
+    htmlSubjectIndicatorDropdownOptions = buildDropdownHtml(subjectIndicators, "subjectIndicator_group").c_str();
     f.close();
   }
 
@@ -388,6 +543,43 @@ const String UI_SAVE_BUTTON = "Opslaan & Herstarten";
 const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
 const String UI_CONFIG_BUTTON = "<div class='box'><button onclick='window.location=\"/device\"'>Wijzig</button></div>";
+const String SAFE_MODE_BG_COLOR = "#fff0f0";
+const String NORMAL_BG_COLOR = "#f4f7f6";
+
+// Lees lettertekens totdat einde bereikt is
+bool readUntilSequence(HardwareSerial& serial,
+                       String& result,
+                       const char* delimiter)
+{
+  result.clear();
+  while (true) {
+      if (!serial.available()) {
+          delay(1);
+          continue;
+      }
+      result += (char)serial.read();
+      if (result.endsWith(delimiter)) {
+          result.remove(result.length() - strlen(delimiter));
+          return true;
+      }
+  }
+}
+
+// We create the HTML markup for listing Navtex messages in the web interface. Each message is displayed with its key and content, allowing users to view the details of each message received. The function iterates through the linked list of NavtexMessage objects and prints their information to the serial monitor for debugging purposes.
+void createNavtexMessageDisplayList() {
+  String myCfgFilter = fmt::format("{0}{1}", myCfg.stationCodeToFilter, myCfg.subjectIndicatorToFilter).c_str();
+  NavtexMessage* current = head;
+
+  while (current) {
+    String thisFilter = current->messageKey.substring(0, 2); // Extract station code from message key
+    char thisSubject = current->messageKey[1]; // Extract subject indicator from message key 
+    if (myCfgFilter.compareTo(thisFilter) == 0 || thisSubject == char('D')) {
+      Serial.println("NAVTEX Message Key: " + current->messageKey);
+      Serial.println("NAVTEX Message Content:\n" + current->raw);
+    };
+    current = current->next;
+  }
+}
 
 void createHtmlTemplates() {
 castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
@@ -410,8 +602,6 @@ setInterval(upLog, 1200);
 </script></div>
 )rawliteral";
   // CSS
-  const String SAFE_MODE_BG_COLOR = "#fff0f0";
-  const String NORMAL_BG_COLOR = "#f4f7f6";
   // Set page background color based on safe mode status
   String pageBackgroundColor = safeModeActive ? SAFE_MODE_BG_COLOR : NORMAL_BG_COLOR;
   htmlCSS = R"rawliteral(
@@ -592,6 +782,40 @@ htmlDeviceHeader = R"rawliteral(
 </div>
 </body></html>
 )rawliteral";
+    };
+
+void readNavtexText() {
+  readUntilSequence(Serial1, textBlock, "end\n");
+  // NAVTEX messages always start with '>'
+  uint32_t  currentHash = fnv1aHash(textBlock);
+  while (currentHash != lastHash) { // we have a text block that is different from the last one
+    int pos = 0;
+    int start =  -1;
+    int end = -1;
+    singleMsg = "";
+    while (pos < textBlock.length()) {
+      start = textBlock.indexOf('>', pos);
+      if (start < 0) break;               // no more starts
+
+      end = textBlock.indexOf('<', start + 1);
+      if (end < 0) break;                 // no matching end
+
+      // Keep everything between > and <, including CR/LF
+      singleMsg = textBlock.substring(start, end + 1);
+      String thisStation = extractStation(singleMsg.c_str());
+      String thisSubject = extractSubjectIndicator(singleMsg.c_str());
+      // Hier komt de logica om de binnenkomende berichten te filteren op basis van station en subject indicator
+      if (thisStation == myCfg.stationCodeToFilter && (thisSubject == myCfg.subjectIndicatorToFilter || thisSubject == "D")) {
+          addNavtexMessage(singleMsg);
+      } else {
+          Serial.println("Filtered out message from station: " + thisStation + " with subject: " + thisSubject);
+      }
+      Serial.println("Msg:");
+      Serial.println(singleMsg);
+
+      pos = end + 1;                      // continue after this block
+    }
+  }
 }
 
 void handleRoot() {
@@ -854,13 +1078,12 @@ void setup() {
 
 // --- MAIN LOOP ---
 void loop() {
-  server.handleClient();
 
   // UART1 naar WEB/USB
   if (Serial1.available()) {
-    String in = Serial1.readStringUntil('\n'); in.trim();
-    addToLog(in, false);
-    Serial.println("UART: " + in);
+    readNavtexText(); // Read the complete Navtex text
+  } else {
+    server.handleClient(); // Do what the client needs
   }
 
   // Dubbele functionaliteit op BOOT knop: korte druk voor herstart, lange druk voor safe mode toggle
