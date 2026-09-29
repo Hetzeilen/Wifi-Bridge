@@ -15,7 +15,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WebServer.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <ESPmDNS.h>
 #include <iostream>
@@ -79,7 +80,7 @@ struct InputOption {
 // HASH FUNCTION (FNV-1a)
 // =========================
 
-uint32_t fnv1aHash(const String& s) {
+uint32_t fnv1aHash(const std::string& s) {
     uint32_t hash = 0x811C9DC5;
     for (size_t i = 0; i < s.length(); i++) {
         hash ^= (uint8_t)s[i];
@@ -92,13 +93,13 @@ uint32_t fnv1aHash(const String& s) {
 // =========================
 
 struct NavtexMessage {
-  String raw;               // full NAVTEX message text block (for this station)
-  String messageKey;        // EA99, GA47, TD42, ...
-  bool markedForViewing;    // checkbox flag. When true expand, otherwise collapse
-  NavtexMessage* next;
+  std::string raw;               // full NAVTEX message text block (for this station)
+  std::string messageKey;        // EA99, GA47, TD42, ...
+  bool markedForDeletion = false;    // checkbox flag. When true expand, otherwise collapse
+  NavtexMessage* next = nullptr;
 
-  NavtexMessage(const String& message, const String& key)
-    : raw(message), messageKey(key), markedForViewing(false), next(nullptr) {}
+  NavtexMessage(const std::string& message, const std::string& key)
+    : raw(message), messageKey(key), markedForDeletion(false), next(nullptr) {}
 };
 
 
@@ -163,6 +164,9 @@ unsigned long buttonPressedTime = 0;
 const long LONG_PRESS_TIME = 3000; // 3 seconden voor lange druk
 bool isPressing = false;
 int buttonState = 0;
+String serial1In = ""; // From Serial1
+String usb = "";  // From USB
+
 
 const char* CFG_PATH = "/config.txt";
 uint8_t configuration_UART =  0x06; // SERIAL_8N1
@@ -171,10 +175,16 @@ uint8_t bit_arret;
 uint8_t longueur_donnees;
 // Provide RealTime Clock DS3231 support via I2C
 RTC_DS3231 rtc;
-WebServer server(80);
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 String eventLog = ""; // Reserveer geheugen voor logboek, voorkomt fragmentatie
 const int maxLogLines = 25;
+const unsigned long LOG_PUSH_INTERVAL_MS = 250;
+bool logUpdatePending = false;
+unsigned long lastLogPushMs = 0;
 bool safeModeActive = false;
+bool signalHardwareChange = false; // Variabele om aan te geven dat er nieuwe hardware is gedetecteerd, kan later worden gebruikt voor notificaties
+bool isParsing = false; // Zet dit 'aan' indien we $S berichten aan het parsen zijn, zodat we geen andere berichten in de log opnemen
 
 std::string parityRadioOptions; // Globale variabele om de gegenereerde Parity Radio HTML op te slaan
 std::string stopBitRadioOptions; // Globale variabele om de gegenereerde Stop Bit Dropdown HTML op te slaan
@@ -188,20 +198,24 @@ String htmlDeviceHeader;   // Globale variabele om de WiFi Config HTML op te sla
 String htmlUartSend;     // Globale variabele om de UART Send HTML op te slaan
 String htmlLog;          // Globale variabele om de Log HTML op te slaan
 String htmlUploadLogFunction; // Globale variabele om de AJAX upload functie op te slaan
+String htmlUartReceive;  // Globale variabele om de UART Receive HTML op te slaan
+String UI_RECEIVE_BUTTON = "<div class='box'><button onclick='window.location=\"/receive\"'>Ontvang</button></div>"; // Globale variabele om de button om te ontvangen 'aan' en 'af' te zetten
 std::string htmlDateTimeButton_UI; // Globale variabele DateTime submit button te decoreren
 std::string htmlConfigurationButton; // Globale variabele om de configuratie buttons HTML op te slaan
 
 NavtexMessage* head = nullptr;
-std::map<String, NavtexMessage*> messageIndex;
+std::map<std::string, NavtexMessage*> messageIndex;
 uint32_t lastHash = 0;   // hash of previous $S transmission
-String textBlock = String(' ', 4096); // reserve a text block
-String singleMsg = String(' ', 1024); // reserve a single message
+const size_t MAX_NAVTEX_BLOCK_SIZE = 20480;
+std::string textBlock;
+
+std::string singleMsg(1024, '\0'); // reserve a single message
 std::string htmlSubjectIndicatorDropdownOptions; // Globale variable om de gegenereerde Subject Indicator Dropdown HTML op te slaan
 
 // =========================
 // FIND NAVTEX MESSAGE BY KEY
 // =========================
-NavtexMessage* findNavtexMessage(const String& messageKey) {
+NavtexMessage* findNavtexMessage(const std::string& messageKey) {
   auto indexEntry = messageIndex.find(messageKey);
   return indexEntry == messageIndex.end() ? nullptr : indexEntry->second;
 }
@@ -210,77 +224,65 @@ NavtexMessage* findNavtexMessage(const String& messageKey) {
 // EXTRACT STATION CODE
 // =========================
 
-String extractStation(const char *line) {
-    if (line[0] == '>' && strlen(line) >= 3) {
+std::string extractStation(const std::string& message) {
+    if (message[0] == '>' && message.length() >= 3) {
       // Station is a single char
-        return String(line[1]);
+        return message.substr(1, 1);
     }
-    return "/"; // Default value if not found
+    return "N"; // Default value if not found
 };
 
 // =========================
 // EXTRACT MESSAGE KEY
 // =========================
-String extractMessageKey(const String& message) {
-  if (!message.startsWith(">") || message.length() < 5) {
-    return "";
+std::string extractMessageKey(const std::string& message) {
+  if (message[0] == '>' && message.length() >= 5) {
+    return message.substr(1, 4);
   }
 
-  int lineEnd = message.indexOf('\n');
-  if (lineEnd == -1) {
-    lineEnd = message.length();
-  }
-
-  return lineEnd >= 5 ? message.substring(1, 5) : "";
+  return "NNNN"; // Default value if not found
 }
 
 // =========================
 // EXTRACT Subject Indicator Character
 // =========================
 
-String extractSubjectIndicator(const char *line) {
-    if (line[0] == '>' && strlen(line) >= 3) {
+std::string extractSubjectIndicator(const std::string& message) {
+    if (message[0] == '>' && message.length() >= 5) {
       // Subject is a single char
-        return String(line[2]);
+        return message.substr(2, 1);
     }
-    return "/"; // Default value if not found
+    return "N"; // Default value if not found
 };
 
 // =========================
 // ADD MESSAGE TO LINKED LIST
 // =========================
 
-void addNavtexMessage(const String& msg) {
-  String messageKey = extractMessageKey(msg);
-
-  if (!head) {
-    NavtexMessage* newMsg = new NavtexMessage(msg, messageKey);
-    head = newMsg;
-    if (messageKey.length() > 0) {
-      messageIndex.emplace(messageKey, newMsg);
-    };
-    Serial.println("Start van linked list met eerste NAVTEX bericht");
-    Serial.println(msg);
-  } else {
-    if (messageKey.length() > 0 && messageIndex.find(messageKey) != messageIndex.end()) {
-      Serial.println("Duplicaat bericht gevonden, niet toegevoegd. Sleutel: " + messageKey);
-      return;
+void addNavtexMessage(NavtexMessage*& listHead, const std::string& msg, const std::string& messageKey) {
+  if (messageKey.length() == 4) { 
+    if (!listHead) {
+      // the first element receives listHead as next pointer, which is null pointer
+      listHead = new NavtexMessage(msg, messageKey);
+      messageIndex.emplace(messageKey, listHead);
+      Serial.println("Start van linked list met eerste NAVTEX bericht");
+      Serial.printf("%s\n",msg.c_str());
     } else {
-      NavtexMessage* newMsg = new NavtexMessage(msg, messageKey);
-      NavtexMessage* cur = head;
-      while (cur->next) cur = cur->next;
-      cur->next = newMsg;
-      if (messageKey.length() > 0) {
+      if (findNavtexMessage(messageKey)) {
+        Serial.printf("Duplicaat bericht gevonden, niet toegevoegd. Sleutel: %s\n", messageKey);
+        return;
+      } else {
+        // we update listHead pointing to a new NavtexMessage which we create with next reference to the original head
+        NavtexMessage* newMsg = new NavtexMessage(msg, messageKey);
+        newMsg->next = listHead;
+        listHead = newMsg;
         messageIndex.emplace(messageKey, newMsg);
-      };
-      Serial.println("NAVTEX bericht toegevoegd aan linked list. Sleutel: " + messageKey);
+        Serial.printf("NAVTEX bericht toegevoegd aan linked list. Sleutel: %s\n", messageKey);
+      }
     }
+  } else {
+    Serial.printf("De sleutel van het Navtex bericht is niet lang genoeg: %s\n", messageKey);
   }
-
-
-
-  Serial.println("NAVTEX message added:");
-  Serial.println(msg);
 }
 
 // Pas de selectie aan in de vector op basis van een label-match
@@ -342,6 +344,19 @@ void createParityOptions() {
 }
 
 // --- HULPFUNCTIES VOOR LOGBOEK ---
+void pushLogToClients() {
+  logUpdatePending = ws.count() > 0;
+}
+
+void serviceLogUpdates() {
+  const unsigned long now = millis();
+  if (logUpdatePending && ws.count() > 0 && now - lastLogPushMs >= LOG_PUSH_INTERVAL_MS) {
+    logUpdatePending = false;
+    lastLogPushMs = now;
+    ws.textAll(eventLog);
+  }
+}
+
 void addToLog(String msg, bool includeTimestamp = true) {
   std::string regel(126, ' '); // Reserveer geheugen voor logregel, voorkomt fragmentatie
   struct tm now_ts;
@@ -360,6 +375,7 @@ void addToLog(String msg, bool includeTimestamp = true) {
   if (count > maxLogLines) {
     eventLog = eventLog.substring(eventLog.indexOf("<br>") + 4);
   }
+  pushLogToClients();
 }
 
 // --- LITTLEFS BESTANDSBEHEER ---
@@ -542,42 +558,82 @@ const String UI_SERIAL_MONITOR = "📟 Seriële Monitor";
 const String UI_SAVE_BUTTON = "Opslaan & Herstarten";
 const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
+const String UI_RECEIVEHOLDER = "Ontvang berichten van Navtex...";
 const String UI_CONFIG_BUTTON = "<div class='box'><button onclick='window.location=\"/device\"'>Wijzig</button></div>";
 const String SAFE_MODE_BG_COLOR = "#fff0f0";
 const String NORMAL_BG_COLOR = "#f4f7f6";
 
 // Lees lettertekens totdat einde bereikt is
 bool readUntilSequence(HardwareSerial& serial,
-                       String& result,
-                       const char* delimiter)
+                       std::string& result,
+                       const std::string stop)
 {
-  result.clear();
-  while (true) {
-      if (!serial.available()) {
-          delay(1);
-          continue;
-      }
-      result += (char)serial.read();
-      if (result.endsWith(delimiter)) {
-          result.remove(result.length() - strlen(delimiter));
-          return true;
-      }
+  //const std::string stop = delimiter; // e.g. "end"
+  if (!serial.available()) {
+    return false; // No data available
+  };
+  int counter = 0;
+  while (serial.available()) {
+    int character = serial.read();
+    result += static_cast<char>(character);
+
+    if (result.length() >= stop.length() &&
+        result.compare(result.length() - stop.length(), stop.length(), stop) == 0)
+    {
+      result.erase(result.length() - stop.length());
+      return true;
+    };
+    if (result.length() > MAX_NAVTEX_BLOCK_SIZE) {
+      result.clear();
+      while (serial.available()) serial.read();
+      addToLog("NAVTEX block exceeded maximum size and was discarded.", false);
+      return false;
+    }
+    counter++;
+    if (counter > 1000) { // Prevent infinite loop
+      delay(1);
+      counter = 0;
+    }
   }
-}
+  return false;
+};
 
 // We create the HTML markup for listing Navtex messages in the web interface. Each message is displayed with its key and content, allowing users to view the details of each message received. The function iterates through the linked list of NavtexMessage objects and prints their information to the serial monitor for debugging purposes.
 void createNavtexMessageDisplayList() {
-  String myCfgFilter = fmt::format("{0}{1}", myCfg.stationCodeToFilter, myCfg.subjectIndicatorToFilter).c_str();
+  std::string myCfgFilter = fmt::format("{0}{1}", myCfg.stationCodeToFilter, myCfg.subjectIndicatorToFilter).c_str();
   NavtexMessage* current = head;
 
   while (current) {
-    String thisFilter = current->messageKey.substring(0, 2); // Extract station code from message key
+    std::string thisFilter = current->messageKey.substr(0, 2); // Extract station code from message key
     char thisSubject = current->messageKey[1]; // Extract subject indicator from message key 
-    if (myCfgFilter.compareTo(thisFilter) == 0 || thisSubject == char('D')) {
-      Serial.println("NAVTEX Message Key: " + current->messageKey);
-      Serial.println("NAVTEX Message Content:\n" + current->raw);
+    if (myCfgFilter.compare(thisFilter) == 0 || thisSubject == char('D')) {
+      Serial.printf("NAVTEX Message Key: %s\n", current->messageKey.c_str());
+      Serial.printf("NAVTEX Message Content:\n%s", current->raw.c_str());
     };
     current = current->next;
+  }
+}
+
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  (void)server;
+  (void)client;
+  (void)arg;
+  (void)data;
+  (void)len;
+
+  switch (type) {
+    case WS_EVT_CONNECT:
+      client->printf("%s\n", eventLog.c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      break;
+    case WS_EVT_DATA:
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+    default:
+      break;
   }
 }
 
@@ -585,20 +641,25 @@ void createHtmlTemplates() {
 castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
 
 htmlHeaderString = "<!DOCTYPE html><html lang=nl><head><title>C3 Bridge</title><meta name='viewport' charset='UTF-8' content='width=device-width, initial-scale=1'>";
-  // AJAX Script
+  // WebSocket Script
 htmlUploadLogFunction = R"rawliteral(
 <script>
-function upLog() {
-  const b = document.getElementById('lb');
-  const s = b.scrollHeight - b.clientHeight <= b.scrollTop + 50;
-  fetch('/getlog')
-    .then(r => r.text())
-    .then(d => {
-      b.innerHTML = d;
-      if (s) b.scrollTop = b.scrollHeight;
-    });
-}
-setInterval(upLog, 1200);
+const logBox = document.getElementById('lb');
+const scrollToBottom = () => {
+  if (!logBox) return;
+  const isNearBottom = logBox.scrollHeight - logBox.clientHeight <= logBox.scrollTop + 50;
+  if (isNearBottom) logBox.scrollTop = logBox.scrollHeight;
+};
+const protocol = (location.protocol === 'https:') ? 'wss' : 'ws';
+const socket = new WebSocket(protocol + '://' + location.host + '/ws');
+socket.onopen = () => console.log('WebSocket connected');
+socket.onmessage = (event) => {
+  if (!logBox) return;
+  logBox.innerHTML = event.data;
+  scrollToBottom();
+};
+socket.onclose = () => console.log('WebSocket closed');
+socket.onerror = () => console.log('WebSocket error');
 </script></div>
 )rawliteral";
   // CSS
@@ -709,8 +770,10 @@ input[type=text], input[type=password] {
 
      if(safeModeActive) {
        htmlSafeModeHeader = "<h2 style='color:red;'>" + UI_SAFE_MODE_HEADER + "</h2><p>" + UI_SAFE_MODE_DESC + "</p>";
+       UI_RECEIVE_BUTTON = "<div class='btn'>Receive</div>";
      } else {
        htmlSafeModeHeader = "<h2>" + UI_TITLE + "</h2>";
+       UI_RECEIVE_BUTTON = "<div class='box'><button onclick='window.location=\"/receive\"'>Ontvang</button></div>";
      }
 
   // WiFi Config
@@ -774,6 +837,19 @@ htmlDeviceHeader = R"rawliteral(
 </div>
 )rawliteral";
 
+  // UART Receive
+  htmlUartReceive = R"rawliteral(
+<div class='container'>
+  <div class='box'>
+    <p>
+      <form action='/receive' method='POST'>
+        <input type='submit' class='btn' value='Ontvangen'>
+      </form>
+    </p>
+  </div>
+</div>
+)rawliteral";
+
   // Log
   htmlLog = R"rawliteral(
 <div class='box'>
@@ -785,48 +861,63 @@ htmlDeviceHeader = R"rawliteral(
     };
 
 void readNavtexText() {
-  readUntilSequence(Serial1, textBlock, "end\n");
+  if (readUntilSequence(Serial1, textBlock, "end")) {
   // NAVTEX messages always start with '>'
-  uint32_t  currentHash = fnv1aHash(textBlock);
-  while (currentHash != lastHash) { // we have a text block that is different from the last one
-    int pos = 0;
-    int start =  -1;
-    int end = -1;
-    singleMsg = "";
-    while (pos < textBlock.length()) {
-      start = textBlock.indexOf('>', pos);
-      if (start < 0) break;               // no more starts
+    uint32_t  currentHash = fnv1aHash(textBlock);
+    addToLog("We got the block of text", false);
+    if (currentHash != lastHash) { // we have a text block that is different from the last one
+      size_t pos = 0;
+      size_t start;
+      size_t end;
+      size_t blockSize = textBlock.size(); // efficiënter zo om de lengte maar één keer te berekenen
+      singleMsg.clear();
+      while (pos < blockSize) {
+        start = textBlock.find('>', pos);
+        if (start == std::string::npos) break;   // no more starts
 
-      end = textBlock.indexOf('<', start + 1);
-      if (end < 0) break;                 // no matching end
+        end = textBlock.find('<', start + 1);
+        if (end == std::string::npos) break;     // no matching end
 
-      // Keep everything between > and <, including CR/LF
-      singleMsg = textBlock.substring(start, end + 1);
-      String thisStation = extractStation(singleMsg.c_str());
-      String thisSubject = extractSubjectIndicator(singleMsg.c_str());
-      // Hier komt de logica om de binnenkomende berichten te filteren op basis van station en subject indicator
-      if (thisStation == myCfg.stationCodeToFilter && (thisSubject == myCfg.subjectIndicatorToFilter || thisSubject == "D")) {
-          addNavtexMessage(singleMsg);
-      } else {
-          Serial.println("Filtered out message from station: " + thisStation + " with subject: " + thisSubject);
-      }
-      Serial.println("Msg:");
-      Serial.println(singleMsg);
+        // Keep everything between > and <, including the delimiters
+        std::string singleMsg = textBlock.substr(start, end - start + 1);
 
-      pos = end + 1;                      // continue after this block
-    }
+        std::string thisStation = extractStation(singleMsg);
+        std::string thisSubject = extractSubjectIndicator(singleMsg);
+        std::string thisKey = extractMessageKey(singleMsg);
+        // De logica om de binnenkomende berichten te filteren op basis van station en subject indicator gebeurt elders
+        delay(1);
+        addToLog("Adding NAVTEX message: ", false);
+        addNavtexMessage(head, singleMsg, thisKey);
+        Serial.printf(
+          "Filtered out message from station: %s with subject: %s\n",
+          thisStation.c_str(),
+          thisSubject.c_str()
+        );
+        
+        addToLog("Filtered out message from station", false);
+        Serial.println("Msg:");
+        Serial.println(singleMsg.c_str());
+
+        pos = end + 1;                      // continue after this block
+      };
+    };
+    lastHash = currentHash;
+    textBlock.clear();
+    Serial.println("NAVTEX message received and processed.");
+  } else {
+    delay(10);
   }
 }
 
-void handleRoot() {
+void handleRoot(AsyncWebServerRequest *request) {
   serverOutput.clear(); // Clear buffer before generating new output
   createHtmlTemplates(); // Regenerate templates to update dynamic content like clock emoji
   if (safeModeActive) {
-    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlLog, htmlUploadLogFunction);
+    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlUartReceive, htmlLog, htmlUploadLogFunction);
   } else {
-    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlDeviceHeader, htmlUartSend, htmlLog, htmlUploadLogFunction);
-  } 
-  server.send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlDeviceHeader, htmlUartSend, htmlUartReceive, htmlLog, htmlUploadLogFunction);
+  }
+  request->send(200, "text/html; charset=UTF-8", serverOutput.c_str());
 }
 
 // Herstart
@@ -835,7 +926,6 @@ void systemConfig() {
   addToLog("System config by button push...");
   safeModeActive = true;
   delay(500);
-  server.sendHeader("Location", "/"); server.send(303);
 }
 
 // --- SETUP ---
@@ -865,7 +955,7 @@ void setup() {
     Serial.println("RTC gevonden op I2C bus");
     addToLog("RTC gevonden op I2C bus");
   }
-  bool signalHardwareChange = false; // Variabele om aan te geven dat er nieuwe hardware is gedetecteerd, kan later worden gebruikt voor notificaties
+  signalHardwareChange = false; // Variabele om aan te geven dat er nieuwe hardware is gedetecteerd, kan later worden gebruikt voor notificaties
   if (myCfg.hasRTC == "1" && !RTC_status) {
     // Als de configuratie aangeeft dat er een RTC is, maar we kunnen deze niet bereiken, log dan een fout
     Serial.println("Configuratie geeft aan dat er een RTC is, maar deze is niet bereikbaar.");
@@ -932,24 +1022,31 @@ void setup() {
     Serial.println("WiFi available! Browser: http://" + myCfg.mdns + ".local");
   }
 
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+
   // Routes
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/getlog", HTTP_GET, [](){ server.send(200, "text/plain", eventLog); });
-  server.on("/savecfg", HTTP_POST, [](){
-    myCfg.ssid = server.arg("s"); // Lees ssid van formulier
-    String passFromForm = server.arg("p"); // Lees password van formulier
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    handleRoot(request);
+  });
+  server.on("/getlog", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", eventLog);
+  });
+  server.on("/savecfg", HTTP_POST, [](AsyncWebServerRequest *request) {
+    myCfg.ssid = request->arg("s"); // Lees ssid van formulier
+    String passFromForm = request->arg("p"); // Lees password van formulier
     if(passFromForm == "/\\/\\") {
       // Als het wachtwoord veld ongewijzigd is (placeholder), behoud dan het oude wachtwoord
       Serial.println("Wachtwoord ongewijzigd, behoud huidig wachtwoord.");
     } else {
        myCfg.pass = passFromForm; // Lees password van formulier
     }
-    myCfg.mdns = server.arg("m"); // Lees mDNS van formulier
-    String baudAsString = server.arg("b"); // Lees baudrate van formulier
+    myCfg.mdns = request->arg("m"); // Lees mDNS van formulier
+    String baudAsString = request->arg("b"); // Lees baudrate van formulier
     myCfg.baud = baudAsString.toInt(); // Converteer naar integer
-    myCfg.parity = server.arg("parity_group").c_str(); // Lees parity_group van formulier
-    myCfg.stopBits = server.arg("stopBits_group").c_str(); // Lees stopBits_group van formulier
-    myCfg.dataBits = server.arg("dataBits_group").c_str(); // Lees dataBits_group van formulier
+    myCfg.parity = request->arg("parity_group").c_str(); // Lees parity_group van formulier
+    myCfg.stopBits = request->arg("stopBits_group").c_str(); // Lees stopBits_group van formulier
+    myCfg.dataBits = request->arg("dataBits_group").c_str(); // Lees dataBits_group van formulier
     Serial.println("parityBits van portaal: " + String(myCfg.parity.c_str()));
     Serial.println("stopBits van portaal: " + String(myCfg.stopBits.c_str()));
     Serial.println("dataBits van portaal: " + String(myCfg.dataBits.c_str()));
@@ -959,19 +1056,27 @@ void setup() {
     createHtmlTemplates();
     addToLog("Nieuwe configuratie opgeslagen. Herstarten...");
     Serial.println("Nieuwe configuratie opgeslagen. Herstarten...");
-    server.sendHeader("Location", "/"); server.send(303);
+    request->redirect("/");
     Serial1.begin(myCfg.baud, SERIAL_8N1, UART1_RX, UART1_TX);
     delay(2000);
     ESP.restart();
   });
-  server.on("/write", [](){
-    if(server.hasArg("t")){ 
-      Serial1.println(server.arg("t")); 
-      addToLog("<b>WEB-OUT:</b> " + server.arg("t")); 
+  server.on("/write", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if(request->hasArg("t")){ 
+      String msg = request->arg("t");
+      Serial1.println(msg); 
+      addToLog("<b>WEB-OUT:</b> " + msg);
     }
-    server.sendHeader("Location", "/"); server.send(303);
+    request->redirect("/");
   });
-  server.on("/getclock", HTTP_GET, [](){
+  server.on("/receive", HTTP_POST, [](AsyncWebServerRequest *request) {
+    isParsing = true; 
+    String msg = "$S";
+    Serial1.println(msg);
+    addToLog("<b>WEB-OUT:</b> " + msg);
+    request->redirect("/");
+  });
+  server.on("/getclock", HTTP_GET, [](AsyncWebServerRequest *request) {
     serverOutput.clear();
     // Obtain proper clock face based on system time
     struct tm now_ts;
@@ -1011,11 +1116,11 @@ void setup() {
     </div><div class='box'><button onclick="window.location='/'">Hoofdmenu</button></div>)rawliteral";
     
     fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlGetTimeDateForm, htmlUartSend, htmlLog, htmlUploadLogFunction);
-    server.send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+    request->send(200, "text/html; charset=UTF-8", serverOutput.c_str());
   });
-  server.on("/setclock", HTTP_POST, []() {
-    if (server.hasArg("dt")) {
-      String dt = server.arg("dt"); // Voorbeeld: "2023-10-27T14:30"
+  server.on("/setclock", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (request->hasArg("dt")) {
+      String dt = request->arg("dt"); // Voorbeeld: "2023-10-27T14:30"
       // We gebruiken .substring of sscanf om de string te ontleden
       // Formaat: 0123 4 56 7 89 0 12 3 45
       //          YYYY - MM - DD T HH : MM
@@ -1049,28 +1154,25 @@ void setup() {
       }
       addToLog("Klok bijgewerkt naar: " + dt);
       Serial.println("Klok bijgewerkt naar: " + dt);
-      server.sendHeader("Location", "/getclock"); server.send(303);
+      request->redirect("/getclock");
     } else {
       addToLog("Foutieve klok parameters ontvangen.");
       Serial.println("Foutieve klok parameters ontvangen.");
-      server.sendHeader("Location", "/"); server.send(303);
-
+      request->redirect("/");
     }
   });
-  server.on("/device", HTTP_GET, [](){
+  server.on("/device", HTTP_GET, [](AsyncWebServerRequest *request) {
     serverOutput.clear(); // Clear buffer before generating new output
     fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlLog, htmlUploadLogFunction);
-    server.send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+    request->send(200, "text/html; charset=UTF-8", serverOutput.c_str());
   });
   // Serve favicon
-  server.on("/favicon.ico", HTTP_GET, []() {
-    File file = LittleFS.open("/favicon.ico", "r");
-    if (!file) {
-      server.send(404, "text/plain", "Favicon not found");
+  server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (!LittleFS.exists("/favicon.ico")) {
+      request->send(404, "text/plain", "Favicon not found");
       return;
     }
-    server.streamFile(file, "image/x-icon");
-    file.close();
+    request->send(LittleFS, "/favicon.ico", "image/x-icon");
   });
 
   server.begin();
@@ -1078,12 +1180,19 @@ void setup() {
 
 // --- MAIN LOOP ---
 void loop() {
-
+  // Wacht even
+  delay(10);
+  serviceLogUpdates();
   // UART1 naar WEB/USB
-  if (Serial1.available()) {
-    readNavtexText(); // Read the complete Navtex text
+  if (!isParsing) {
+    if (Serial1.available()) {
+      serial1In = Serial1.readStringUntil('\n');
+      serial1In.trim();
+      Serial.println("UART: " + serial1In);
+      addToLog("<b>UART:</b> " + serial1In);
+    }
   } else {
-    server.handleClient(); // Do what the client needs
+    readNavtexText();
   }
 
   // Dubbele functionaliteit op BOOT knop: korte druk voor herstart, lange druk voor safe mode toggle
@@ -1109,12 +1218,12 @@ void loop() {
     }
     isPressing = false;
   }
-
-  // USB naar UART0
+  // Echo ook USB naar het log
   if (Serial.available()) {
-    String usb = Serial.readStringUntil('\n');
+    usb = Serial.readStringUntil('\n');
     usb.trim();
     Serial.println(usb);
     addToLog("<b>USB-IN:</b> " + usb);
+    Serial1.println(usb);
   }
 }
