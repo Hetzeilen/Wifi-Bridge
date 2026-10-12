@@ -269,7 +269,7 @@ void addNavtexMessage(NavtexMessage*& listHead, const std::string& msg, const st
       Serial.printf("%s\n",msg.c_str());
     } else {
       if (findNavtexMessage(messageKey)) {
-        Serial.printf("Duplicaat bericht gevonden, niet toegevoegd. Sleutel: %s\n", messageKey);
+        Serial.printf("Duplicaat bericht gevonden, niet toegevoegd. Sleutel: %s\n", messageKey.c_str());
         return;
       } else {
         // we update listHead pointing to a new NavtexMessage which we create with next reference to the original head
@@ -277,11 +277,11 @@ void addNavtexMessage(NavtexMessage*& listHead, const std::string& msg, const st
         newMsg->next = listHead;
         listHead = newMsg;
         messageIndex.emplace(messageKey, newMsg);
-        Serial.printf("NAVTEX bericht toegevoegd aan linked list. Sleutel: %s\n", messageKey);
+        Serial.printf("NAVTEX bericht toegevoegd aan linked list. Sleutel: %s\n", messageKey.c_str());
       }
     }
   } else {
-    Serial.printf("De sleutel van het Navtex bericht is niet lang genoeg: %s\n", messageKey);
+    Serial.printf("De sleutel van het Navtex bericht is niet lang genoeg: %s\n", messageKey.c_str());
   }
 }
 
@@ -900,13 +900,16 @@ void readNavtexText() {
 
         pos = end + 1;                      // continue after this block
       };
+    } else {
+      Serial.println("Received NAVTEX block is identical to the last one, ignoring.");
     };
     lastHash = currentHash;
     textBlock.clear();
     Serial.println("NAVTEX message received and processed.");
   } else {
     delay(10);
-  }
+  };
+  isParsing = false;
 }
 
 void handleRoot(AsyncWebServerRequest *request) {
