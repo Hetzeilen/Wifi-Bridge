@@ -157,10 +157,40 @@ std::vector<InputOption> subjectIndicators = {
   {"opt16","Z", "No messages on hand.", false} 
 };
 
+std::vector<InputOption> stationSelectors = {
+
+  {"opt1", "A", "A-NOR", false},                                        
+  {"opt2", "B", "B-NOR", false},                         
+  {"opt3", "C", "C-NOR", false},
+  {"opt4", "D", "D-FRO", false},
+  {"opt5", "E", "E-GBR", false},
+  {"opt6", "G", "G-GBR", false},
+  {"opt7", "H", "H-SWE", false},
+  {"opt8", "I", "I-SWE", false},
+  {"opt9", "J", "J-SWE", false},
+  {"opt10", "K", "K-GBR", false},
+  {"opt11", "L", "L-NOR", false},
+  {"opt12", "M", "M-NOR", false},
+  {"opt13", "N", "N-NOR", false},
+  {"opt14", "O", "O-GBR", false},
+  {"opt15", "P", "P-NLD", false},
+  {"opt16", "Q", "Q-IRL", false},
+  {"opt17", "R", "R-ISL", false},
+  {"opt18", "S", "S-DEU", false},
+  {"opt19", "T", "T-BEL", false},
+  {"opt20", "F", "F-EST", false},
+  {"opt21", "V", "V-BEL", false},
+  {"opt22", "W", "W-IRL", false},
+  {"opt23", "X", "X-ISL", false},
+  {"opt24", "U", "U-NOR", false}
+};
+
+
 // Globale variable serverOuput mag reeds voldoende groot gekozen worden
 std::string serverOutput(8192, ' '); // Buffer voor server output, groot genoeg om de volledige HTML pagina te bevatten
 // We hergebruiken de BOOT knop voor andere functionaliteiten met korte druk
 unsigned long buttonPressedTime = 0;
+unsigned long functionEnteredTime = 0;
 const long LONG_PRESS_TIME = 3000; // 3 seconden voor lange druk
 bool isPressing = false;
 int buttonState = 0;
@@ -199,6 +229,9 @@ String htmlUartSend;     // Globale variabele om de UART Send HTML op te slaan
 String htmlLog;          // Globale variabele om de Log HTML op te slaan
 String htmlUploadLogFunction; // Globale variabele om de AJAX upload functie op te slaan
 String htmlUartReceive;  // Globale variabele om de UART Receive HTML op te slaan
+String htmlFilterConfig;   // Globale variabele om het NAVTEX Config formulier op te slaan
+String htmlNavtexMessageListString; // Unnumbered list
+String htmlNavtexMessageListContainer; // Globale variabele om de NAVTEX Message List HTML op te slaan
 String UI_RECEIVE_BUTTON = "<div class='box'><button onclick='window.location=\"/receive\"'>Ontvang</button></div>"; // Globale variabele om de button om te ontvangen 'aan' en 'af' te zetten
 std::string htmlDateTimeButton_UI; // Globale variabele DateTime submit button te decoreren
 std::string htmlConfigurationButton; // Globale variabele om de configuratie buttons HTML op te slaan
@@ -206,11 +239,12 @@ std::string htmlConfigurationButton; // Globale variabele om de configuratie but
 NavtexMessage* head = nullptr;
 std::map<std::string, NavtexMessage*> messageIndex;
 uint32_t lastHash = 0;   // hash of previous $S transmission
-const size_t MAX_NAVTEX_BLOCK_SIZE = 20480;
+const size_t MAX_NAVTEX_BLOCK_SIZE = 30720;
 std::string textBlock;
 
 std::string singleMsg(1024, '\0'); // reserve a single message
-std::string htmlSubjectIndicatorDropdownOptions; // Globale variable om de gegenereerde Subject Indicator Dropdown HTML op te slaan
+String htmlSubjectIndicatorDropdownOptions; // Globale variable om de gegenereerde Subject Indicator Dropdown HTML op te slaan
+String htmlStationSelectorDropdownOptions; // Globale variable om de gegenereerde Station Selector Dropdown HTML op te slaan
 
 // =========================
 // FIND NAVTEX MESSAGE BY KEY
@@ -252,7 +286,7 @@ std::string extractSubjectIndicator(const std::string& message) {
       // Subject is a single char
         return message.substr(2, 1);
     }
-    return "N"; // Default value if not found
+    return "*"; // Default value if not found
 };
 
 // =========================
@@ -311,14 +345,13 @@ const char* getCurrentClockEmoji(const int hour, const int minute) {
 }
 
 // Genereer HTML Dropdown string
-std::string buildDropdownHtml(const std::vector<InputOption>& options, const std::string& groupName) {
+std::string buildDropdownHtml(const std::vector<InputOption>& options, const std::string& name) {
     std::string rows;
     for (const auto& opt : options) {
         rows += fmt::format("  <option value=\"{}\"{}>{}</option>\n", 
-                            opt.value, opt.isSelected ? " selected" : "", opt.label); 
-        rows += fmt::format("  <label for=\"{}\">{}</label><br>\n", opt.id, opt.label);                
+                            opt.value, opt.isSelected ? " selected" : "", opt.label);         
     }
-    return fmt::format("<select name=\"{}\">\n{}</select>", groupName, rows);
+    return fmt::format("<select name=\"{}\">\n{}</select>", name, rows);
 }
 
 // Genereer HTML Radio string
@@ -355,6 +388,18 @@ void serviceLogUpdates() {
     lastLogPushMs = now;
     ws.textAll(eventLog);
   }
+}
+
+void recreateFilterDropdownHtml() {
+  // Build Subject Indicator HTML Dropdown
+  std::string subjectIndicatorToFilterStr(myCfg.subjectIndicatorToFilter.c_str());
+  selectByValue(subjectIndicators, subjectIndicatorToFilterStr);
+  htmlSubjectIndicatorDropdownOptions = buildDropdownHtml(subjectIndicators, "subjectIndicator_group").c_str();
+
+  // Build Station Selector HTML Dropdown
+  std::string stationSelectorToFilterStr(myCfg.stationCodeToFilter.c_str());
+  selectByValue(stationSelectors, stationSelectorToFilterStr);
+  htmlStationSelectorDropdownOptions = buildDropdownHtml(stationSelectors, "stationSelector_group").c_str();
 }
 
 void addToLog(String msg, bool includeTimestamp = true) {
@@ -442,11 +487,6 @@ void saveToFlash() {
   std::string dataBitsStr(myCfg.dataBits.c_str());
   selectByValue(dataBitOptions, dataBitsStr);
   dataBitRadioOptions = buildRadioHtml(dataBitOptions, "dataBits_group");
-
-  // Build Subject Indicator HTML Dropdown
-  std::string subjectIndicatorToFilterStr(myCfg.subjectIndicatorToFilter.c_str());
-  selectByValue(subjectIndicators, subjectIndicatorToFilterStr);
-  htmlSubjectIndicatorDropdownOptions = buildDropdownHtml(subjectIndicators, "subjectIndicator_group");
 }
 
 void loadFromFlash() {
@@ -470,10 +510,6 @@ void loadFromFlash() {
     // For the moment, this version of myCfg does not store stationCodeToFilter nor subjectIndicatorToFilter
     myCfg.stationCodeToFilter = "T"; // Default to Oostende Radio
     myCfg.subjectIndicatorToFilter = "A"; // Default to Navigational Warnings
-      // Build Subject Indicator HTML Dropdown
-    std::string subjectIndicatorToFilterStr(myCfg.subjectIndicatorToFilter.c_str());
-    selectByValue(subjectIndicators, subjectIndicatorToFilterStr);
-    htmlSubjectIndicatorDropdownOptions = buildDropdownHtml(subjectIndicators, "subjectIndicator_group").c_str();
     f.close();
   }
 
@@ -499,13 +535,14 @@ void loadFromFlash() {
   // Build Stop Bits HTML Dropdown
   std::string stopBitsStr(myCfg.stopBits.c_str());
   selectByValue(stopBitOptions, stopBitsStr);
-  stopBitRadioOptions = buildRadioHtml(stopBitOptions, "stopBits_group");
+  stopBitRadioOptions = buildRadioHtml(stopBitOptions, "stopBits_group").c_str();
 
   // Build Data Bits HTML Dropdown
   std::string dataBitsStr(myCfg.dataBits.c_str());
   selectByValue(dataBitOptions, dataBitsStr);
   dataBitRadioOptions = buildRadioHtml(dataBitOptions, "dataBits_group");
 
+  recreateFilterDropdownHtml();
 }
 
 void setSystemTimeFromRTC() { // Synchroniseer systeemklok met RTC
@@ -558,7 +595,7 @@ const String UI_SERIAL_MONITOR = "📟 Seriële Monitor";
 const String UI_SAVE_BUTTON = "Opslaan & Herstarten";
 const String UI_SEND_BUTTON = "Verzenden";
 const String UI_PLACEHOLDER = "Typ bericht naar hardware...";
-const String UI_RECEIVEHOLDER = "Ontvang berichten van Navtex...";
+const String UI_RECEIVEFILTER = "Bewaar";
 const String UI_CONFIG_BUTTON = "<div class='box'><button onclick='window.location=\"/device\"'>Wijzig</button></div>";
 const String SAFE_MODE_BG_COLOR = "#fff0f0";
 const String NORMAL_BG_COLOR = "#f4f7f6";
@@ -569,49 +606,69 @@ bool readUntilSequence(HardwareSerial& serial,
                        const std::string stop)
 {
   //const std::string stop = delimiter; // e.g. "end"
-  if (!serial.available()) {
-    return false; // No data available
-  };
-  int counter = 0;
-  while (serial.available()) {
-    int character = serial.read();
-    result += static_cast<char>(character);
+  bool flagStopWordIsFound = false;
+  bool breakFromWaiting = false;
+  unsigned long functionEnteredTime = millis();
 
-    if (result.length() >= stop.length() &&
-        result.compare(result.length() - stop.length(), stop.length(), stop) == 0)
-    {
-      result.erase(result.length() - stop.length());
-      return true;
-    };
-    if (result.length() > MAX_NAVTEX_BLOCK_SIZE) {
-      result.clear();
-      while (serial.available()) serial.read();
-      addToLog("NAVTEX block exceeded maximum size and was discarded.", false);
-      return false;
+  String in = "";
+  while (flagStopWordIsFound == false) {
+    if (serial.available()) {
+      in = serial.readStringUntil('\n');
+      if (in.endsWith(stop.c_str())) {
+        flagStopWordIsFound = true;
+        return true;
+      } else {
+        result += in.c_str();
+      };
+      if (result.length() > MAX_NAVTEX_BLOCK_SIZE) {
+        addToLog("NAVTEX block exceeded maximum size.", false);
+        return true;
+      }
+      functionEnteredTime = millis();
     }
-    counter++;
-    if (counter > 1000) { // Prevent infinite loop
-      delay(1);
-      counter = 0;
+    if (millis() - functionEnteredTime > 10000) { // 10 seconds timeout
+      addToLog("Timeout while reading from serial.", false);
+      break;
     }
   }
   return false;
 };
 
-// We create the HTML markup for listing Navtex messages in the web interface. Each message is displayed with its key and content, allowing users to view the details of each message received. The function iterates through the linked list of NavtexMessage objects and prints their information to the serial monitor for debugging purposes.
+// Build HTML for the filtered NAVTEX messages.
 void createNavtexMessageDisplayList() {
   std::string myCfgFilter = fmt::format("{0}{1}", myCfg.stationCodeToFilter, myCfg.subjectIndicatorToFilter).c_str();
+  auto escapeHtml = [](const std::string& value) {
+    std::string escaped;
+    escaped.reserve(value.length());
+    for (char character : value) {
+      switch (character) {
+        case '&': escaped += "&amp;"; break;
+        case '<': escaped += "&lt;"; break;
+        case '>': escaped += "&gt;"; break;
+        case '"': escaped += "&quot;"; break;
+        case '\'': escaped += "&#39;"; break;
+        default: escaped += character; break;
+      }
+    }
+    return escaped;
+  };
+
+  htmlNavtexMessageListString = "<ul class='navtex-message-list'>";
   NavtexMessage* current = head;
 
   while (current) {
     std::string thisFilter = current->messageKey.substr(0, 2); // Extract station code from message key
     char thisSubject = current->messageKey[1]; // Extract subject indicator from message key 
     if (myCfgFilter.compare(thisFilter) == 0 || thisSubject == char('D')) {
-      Serial.printf("NAVTEX Message Key: %s\n", current->messageKey.c_str());
-      Serial.printf("NAVTEX Message Content:\n%s", current->raw.c_str());
+      htmlNavtexMessageListString += "<li><article><h4>";
+      htmlNavtexMessageListString += escapeHtml(current->messageKey).c_str();
+      htmlNavtexMessageListString += "</h4><pre>";
+      htmlNavtexMessageListString += escapeHtml(current->raw).c_str();
+      htmlNavtexMessageListString += "</pre></article></li>";
     };
     current = current->next;
   }
+  htmlNavtexMessageListString += "</ul>";
 }
 
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
@@ -640,7 +697,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
 void createHtmlTemplates() {
 castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
 
-htmlHeaderString = "<!DOCTYPE html><html lang=nl><head><title>C3 Bridge</title><meta name='viewport' charset='UTF-8' content='width=device-width, initial-scale=1'>";
+htmlHeaderString = "<!DOCTYPE html><html lang=nl><head><title>C3 Bridge</title><link rel='icon' type='image/x-icon' href='/images/favicon.ico'><meta name='viewport' charset='UTF-8' content='width=device-width, initial-scale=1'>";
   // WebSocket Script
 htmlUploadLogFunction = R"rawliteral(
 <script>
@@ -787,12 +844,38 @@ input[type=text], input[type=password] {
     <label>Baudrate:<input name='b' type='text' value=')rawliteral" + String(myCfg.baud) + R"rawliteral(' required></label>
     <p>Parity</p>)rawliteral" + parityRadioOptions.c_str() + R"rawliteral(
     <p>Data Bits</p>)rawliteral" + dataBitRadioOptions.c_str() + R"rawliteral(
-    <p>Stop Bits</p>)rawliteral" + stopBitRadioOptions.c_str() + R"rawliteral(</label>
+    <p>Stop Bits</p>)rawliteral" + stopBitRadioOptions.c_str() + R"rawliteral(
     <div class='secDiv'>
     <input type='submit' class='btn' value=')rawliteral" + UI_SAVE_BUTTON + R"rawliteral(' style='background:#28a745;'>
     <div class='box'><button onclick='window.location=\"/"'>Hoofdmenu</button></div>
     </div>
   </form>
+</div>
+)rawliteral";
+
+  // Filter Config
+  htmlFilterConfig = R"rawliteral(
+<div class='box'><h3>Filter</h3>
+    <!-- Toggle: Filter -->
+    <input type="checkbox" id="filterToggle" class="custom-check">
+    <label for="filterToggle" class="knop-stijl">
+      <span class="status-icon"></span>
+        <p>
+        <table><tbody><tr><th>Station Filter</th></tr>
+          <tr><td>Station ID:</td><td>)rawliteral"+ myCfg.stationCodeToFilter + R"rawliteral(</td></tr>
+          <tr><td>Onderwerp:</td><td>)rawliteral" + myCfg.subjectIndicatorToFilter + R"rawliteral(</td></tr>
+        </tbody>
+        </table></p>
+    </label>
+    <div class="content"><p>
+      <form action='/filter' method='POST'>
+        <p>Station</p>)rawliteral" + htmlStationSelectorDropdownOptions + R"rawliteral(
+        <p>Subject</p>)rawliteral" + htmlSubjectIndicatorDropdownOptions + R"rawliteral(
+        <div class='secDiv'>
+        <input type='submit' class='btn' value=')rawliteral" + UI_RECEIVEFILTER.c_str() + R"rawliteral(' style='background:#28a745;'>
+        </div>
+      </form>
+    </div>
 </div>
 )rawliteral";
 
@@ -849,7 +932,7 @@ htmlDeviceHeader = R"rawliteral(
   </div>
 </div>
 )rawliteral";
-
+  
   // Log
   htmlLog = R"rawliteral(
 <div class='box'>
@@ -858,13 +941,26 @@ htmlDeviceHeader = R"rawliteral(
 </div>
 </body></html>
 )rawliteral";
+
+
     };
 
 void readNavtexText() {
+  functionEnteredTime = millis();
+  if (!Serial1.available()) {
+    Serial.println("Engaging data ready");
+    while (!Serial1.available()) {
+      delay(10);
+      if (millis() - functionEnteredTime > 10000) { // 10 seconds timeout
+        Serial.println("Timeout waiting for data on Serial1.");
+        break;
+      }
+    }
+  }
   if (readUntilSequence(Serial1, textBlock, "end")) {
   // NAVTEX messages always start with '>'
     uint32_t  currentHash = fnv1aHash(textBlock);
-    addToLog("We got the block of text", false);
+    Serial.println("We got the block of text");
     if (currentHash != lastHash) { // we have a text block that is different from the last one
       size_t pos = 0;
       size_t start;
@@ -885,7 +981,6 @@ void readNavtexText() {
         std::string thisSubject = extractSubjectIndicator(singleMsg);
         std::string thisKey = extractMessageKey(singleMsg);
         // De logica om de binnenkomende berichten te filteren op basis van station en subject indicator gebeurt elders
-        delay(1);
         addToLog("Adding NAVTEX message: ", false);
         addNavtexMessage(head, singleMsg, thisKey);
         Serial.printf(
@@ -906,10 +1001,12 @@ void readNavtexText() {
     lastHash = currentHash;
     textBlock.clear();
     Serial.println("NAVTEX message received and processed.");
-  } else {
-    delay(10);
-  };
-  isParsing = false;
+  }
+  delay(10);
+  Serial.println("Flushing readbuffer");
+  while (Serial1.available()) {
+    Serial1.read(); // Clear any remaining data in the buffer to avoid overflow
+  }
 }
 
 void handleRoot(AsyncWebServerRequest *request) {
@@ -918,7 +1015,7 @@ void handleRoot(AsyncWebServerRequest *request) {
   if (safeModeActive) {
     fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlUartReceive, htmlLog, htmlUploadLogFunction);
   } else {
-    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlDeviceHeader, htmlUartSend, htmlUartReceive, htmlLog, htmlUploadLogFunction);
+    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlDeviceHeader, htmlUartSend, htmlUartReceive, htmlNavtexMessageListContainer, htmlLog, htmlUploadLogFunction);
   }
   request->send(200, "text/html; charset=UTF-8", serverOutput.c_str());
 }
@@ -933,6 +1030,7 @@ void systemConfig() {
 
 // --- SETUP ---
 void setup() {
+  isParsing = false;
   setenv("TZ", "CET-1CEST,M3.5.0/02:00:00,M10.5.0/03:00:00", 1);
   tzset();
 
@@ -996,6 +1094,7 @@ void setup() {
     signalHardwareChange = false; // Reset de hardware change indicator
   }
   
+  htmlNavtexMessageListContainer = "<div class='box'><h3>Ontvangen NAVTEX Berichten</h3><br>Lege lijst<br>" + htmlFilterConfig + "</div>";
   createHtmlTemplates();
 
   // Hardware UART1 configuratie
@@ -1072,11 +1171,28 @@ void setup() {
     }
     request->redirect("/");
   });
+  server.on("/filter", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if(request->hasArg("station")){ 
+      myCfg.stationCodeToFilter = request->arg("stationSelector_group").c_str(); // Update the station code filter in configuration
+      addToLog("<b>WEB-OUT:</b>Station filter set to" + String(myCfg.stationCodeToFilter));
+    }
+    if(request->hasArg("subject")){ 
+      myCfg.subjectIndicatorToFilter = request->arg("subjectIndicator_group").c_str(); // Update the subject indicator filter in configuration  
+      addToLog("<b>WEB-OUT:</b>Subject filter set to" + String(myCfg.subjectIndicatorToFilter));
+    }
+    recreateFilterDropdownHtml(); // Update the dropdown HTML based on new filters
+    createNavtexMessageDisplayList(); // Update the NAVTEX message display list based on new filters
+    htmlNavtexMessageListContainer = R"rawliteral(
+    <div class='box'>
+      <h3>Ontvangen NAVTEX Berichten</h3>
+      )rawliteral" + htmlNavtexMessageListString + R"rawliteral(<br>
+      )rawliteral" + htmlFilterConfig + R"rawliteral(
+    </div>
+  )rawliteral";
+    request->redirect("/");
+  });
   server.on("/receive", HTTP_POST, [](AsyncWebServerRequest *request) {
-    isParsing = true; 
-    String msg = "$S";
-    Serial1.println(msg);
-    addToLog("<b>WEB-OUT:</b> " + msg);
+    isParsing = true;
     request->redirect("/");
   });
   server.on("/getclock", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -1166,7 +1282,7 @@ void setup() {
   });
   server.on("/device", HTTP_GET, [](AsyncWebServerRequest *request) {
     serverOutput.clear(); // Clear buffer before generating new output
-    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlLog, htmlUploadLogFunction);
+    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlNavtexMessageListContainer, htmlLog, htmlUploadLogFunction);
     request->send(200, "text/html; charset=UTF-8", serverOutput.c_str());
   });
   // Serve favicon
@@ -1187,15 +1303,30 @@ void loop() {
   delay(10);
   serviceLogUpdates();
   // UART1 naar WEB/USB
-  if (!isParsing) {
+  if (isParsing != true) {
     if (Serial1.available()) {
       serial1In = Serial1.readStringUntil('\n');
       serial1In.trim();
-      Serial.println("UART: " + serial1In);
       addToLog("<b>UART:</b> " + serial1In);
     }
-  } else {
+  }
+  if (isParsing == true) {
+    String msg = "$S";
+    Serial1.println(msg);
+    addToLog("<b>WEB-OUT: Fetching Navtex Messages</b>");
     readNavtexText();
+    isParsing = false;
+    createNavtexMessageDisplayList();
+      // Message List
+    htmlNavtexMessageListContainer = R"rawliteral(
+  <div class='box'>
+    <h3>Ontvangen NAVTEX Berichten</h3>
+    )rawliteral" + htmlNavtexMessageListString + R"rawliteral(<br>
+    )rawliteral" + htmlFilterConfig + R"rawliteral(
+  </div>
+  )rawliteral";
+
+
   }
 
   // Dubbele functionaliteit op BOOT knop: korte druk voor herstart, lange druk voor safe mode toggle

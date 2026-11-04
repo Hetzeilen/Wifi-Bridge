@@ -1,0 +1,5 @@
+[1101/184646.635:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Het systeem kan het opgegeven bestand niet vinden. (0x2)
+[1101/184646.715:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Het systeem kan het opgegeven bestand niet vinden. (0x2)
+[1101/184646.729:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Het systeem kan het opgegeven bestand niet vinden. (0x2)
+[1101/184803.187:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Het systeem kan het opgegeven bestand niet vinden. (0x2)
+[1101/185010.075:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Het systeem kan het opgegeven bestand niet vinden. (0x2)
