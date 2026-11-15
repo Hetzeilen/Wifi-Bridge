@@ -1,0 +1,402 @@
+<0 CANCEL WZ 336/26 (EA04).-11.9N 004-12.1W WHITE LIGHT UNRELIABLE.
+Filtered out message from station: E with subject: A
+Msg:
+<0 CANCEL WZ 336/26 (EA04).-11.9N 004-12.1W WHITE LIGHT UNRELIABLE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: EE66
+Filtered out message from station: E with subject: E
+Msg:
+<4RG WINDS EXP IN FITZROY, SOLE AND FASTNETT OR MOD. FOG PATCHES AT FIRST.OR
+NAVTEX bericht toegevoegd aan linked list. Sleutel: EA01
+Filtered out message from station: E with subject: A
+Msg:
+<0(2)R 5 SEC, FOG SIGNAL BELL. ERMANENTLY CHANGED TO PORT HAND PILLAR BUOY
+NAVTEX bericht toegevoegd aan linked list. Sleutel: EA97
+Filtered out message from station: E with subject: A
+Msg:
+<1ONG CHARTED CABLE JOINING 51-39.8N 005-03.9W, 51-40.7N 006-06.0W.STORM
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GE85
+Filtered out message from station: G with subject: E
+Msg:
+<2 THE N OF THE AREA, BUT ALSO IN THE S FM THE BEGINNING OF NXT WEEK, PARTICULARLY
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GE84
+Filtered out message from station: G with subject: E
+Msg:
+<54G WINDS EXP IN VIKING, FORTIES, CROMARTY, FORTH AND FAIR ISLETCHES IND,OR
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA78
+Filtered out message from station: G with subject: A
+Msg:
+<0RELIABLE.FSHORE WIND FARM 57-13N 002-00W ALL TURBINE LIGHTS AND NAVAIDS
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA75
+Filtered out message from station: G with subject: A
+Msg:
+<2 CANCEL WZ 265/26 (GA30).1-21.1W, FOG SIGNAL INOPERATIVE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA69
+Filtered out message from station: G with subject: A
+Msg:
+<32CANCEL WZ 303/26 (GA56). RATIVE**C 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA68
+Filtered out message from station: G with subject: A
+Msg:
+<2ATFORM 48/14-PL 53-34.0N 001-37.9E UNLIT. 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA61
+Filtered out message from station: G with subject: A
+Msg:
+<6 CANCEL WZ 243/26 (GA18).08.6W AND NNG S BUOY 56-12.3N 002-09.8W AIS
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA57
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 232/26 (GA12)..0N 002-05.8E UNLIT AND ALL NAVAIDS INOPERATIVE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA55
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 226/26 (GA07).N 002-29.1E, FOG SIGNAL INOPERATIVE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA54
+Filtered out message from station: G with subject: A
+Msg:
+<1 CANCEL WZ 223/26 (GA02).6N 002-12.6E, UNLIT AND ALL NAVAIDS INOPERATIVE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA51
+Filtered out message from station: G with subject: A
+Msg:
+<1 CANCEL WZ 221/26 (GA15).
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA49
+Filtered out message from station: G with subject: A
+Msg:
+<1 CANCEL WZ 204/26 (GA71)..1E UNLIT AND ALL NAVAIDS INOPERATIVE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: KA55
+Filtered out message from station: K with subject: A
+Msg:
+<0VIGATE WITH CAUTIONF SERVICE - BUOY DAMAGED - LIGHT BUOY - LIGHT UNLIT
+NAVTEX bericht toegevoegd aan linked list. Sleutel: KA53
+Filtered out message from station: K with subject: A
+Msg:
+<1 CANCEL THIS MSG 262359 UTC AUG 26 AUG 26
+NAVTEX bericht toegevoegd aan linked list. Sleutel: KA52
+Filtered out message from station: K with subject: A
+Msg:
+<1LL NOT BE TRANSMITTED.Y, FRENCH MESSAGES (K  518.0 KHZ AND T  490.0 KHZ)NCH
+NAVTEX bericht toegevoegd aan linked list. Sleutel: KA50
+Filtered out message from station: K with subject: A
+Msg:
+<5 CANCEL AVURNAV CHERBOURG 49/26GN AT SEAT 26
+NAVTEX bericht toegevoegd aan linked list. Sleutel: KA45
+Filtered out message from station: K with subject: A
+Msg:
+<1 CANCEL THIS MSG 112359 UTC SEP 261-24.17N 002-17.67E.G
+NAVTEX bericht toegevoegd aan linked list. Sleutel: LJ26
+Filtered out message from station: L with subject: J
+Msg:
+<16. MOD, OCNL ROUGH. RAIN, MOD. FG.G.L ROUGH. DRY, GOOD, BECMG RAIN, MOD.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: LA23
+Filtered out message from station: L with subject: A
+Msg:
+<2LDEMAR A POS 55*TPMQN 004-33.7E UNLIT.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: LA14
+Filtered out message from station: L with subject: A
+Msg:
+<4LTPOSEN LIGHT 61-04.96N 005-11.68E IS DAMAGED.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: LA11
+Filtered out message from station: L with subject: A
+Msg:
+<16IDE OF CH*NNEL51ELAGSTAR RENDE
+NAVTEX bericht toegevoegd aan linked list. Sleutel: OE16
+Filtered out message from station: O with subject: E
+Msg:
+<37 NIGHTD FOG MAY AFFECT THE REGION AT TIMES, PARTICULARLY DURING SAT ANDRNING.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: OA23
+Filtered out message from station: O with subject: A
+Msg:
+<3ATFORM 110/7A 53-48.5N 003-39.8W UNLIT AND ALL NAVAIDS INOPERATIVE. 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: OA11
+Filtered out message from station: O with subject: A
+Msg:
+<32CANCEL WZ 304/26 (OA09). 24.2W FO* SIGNAL INOPERATIVE. 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: PE74
+Filtered out message from station: P with subject: E
+Msg:
+<0VEHEIGHT 0.5-1.0 METER.DERATE, POSSIBLY POOR.ERS.OON IBLY 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: PA46
+Filtered out message from station: P with subject: A
+Msg:
+<0NCEL MSI 302/25E HZR FOGHORN INOPERATIVEE
+NAVTEX bericht toegevoegd aan linked list. Sleutel: PA13
+Filtered out message from station: P with subject: A
+Msg:
+<0NCEL MSI 148/2612E NAV AIDS UNRELIABLE     
+NAVTEX bericht toegevoegd aan linked list. Sleutel: SA91
+Filtered out message from station: S with subject: A
+Msg:
+<5FE BERTH OF 1000M REQUESTED.NG OPERATIONS.'NORDSEE 1'
+NAVTEX bericht toegevoegd aan linked list. Sleutel: SA85
+Filtered out message from station: S with subject: A
+Msg:
+<33TH OF 500M REQUESTED.Y DURIND OPERATIONS.N TTRAQUNIN 0YAPQNTEGBE M
+NAVTEX bericht toegevoegd aan linked list. Sleutel: SA81
+Filtered out message from station: S with subject: A
+Msg:
+<20TH OF 1 NM REQUESTED.Y DURING OPERATIONS.ISCOVERY', RZ '3EKE6',
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA13
+Filtered out message from station: T with subject: A
+Msg:
+<0IPPING IS REQUESTED NOT TO ANCHOR NOR TO FISH IN THE VICINITY.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TF76
+Filtered out message from station: T with subject: F
+Msg:
+<0CEPT FOR LNG CARRIERSTROL ZEEBRUGGE VHF 4 IS CLOSED, G 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA10
+Filtered out message from station: T with subject: A
+Msg:
+<0RT OF ZEEBRUGGE WESTERN PIER FOGHORN OUT OF ORDER
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA55
+Filtered out message from station: T with subject: A
+Msg:
+<0 FISH IN THE VICINITY.REQUESTED NOT TO ANCHOR NOR  
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA44
+Filtered out message from station: T with subject: A
+Msg:
+<26SELS LISTENING ON VHF 16AT A SAFE DISTANCE FROM M/V DUKE, M/V MANU PEKKASIVES
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA27
+Filtered out message from station: T with subject: A
+Msg:
+<0IS OBJECT.UESTED NOT TO ANCHOR NOR TO FISH IN A RADIUS OF 500 METER AROUND
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA12
+Filtered out message from station: T with subject: A
+Msg:
+<0SH IN THE VICINITYD TO PASS AT A SAFE DISTANCE AND NOT TO ANCHOR NOR
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA11
+Filtered out message from station: T with subject: A
+Msg:
+<4IPPING IS REQUESTED NOT TO ANCHOR NOR FISH IN THE VICINITY
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA85
+Filtered out message from station: T with subject: A
+Msg:
+<0HIN DISTANCE OF 200MARE PROHIBITED 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA79
+Filtered out message from station: T with subject: A
+Msg:
+<0R TO FISH IN THE VICINITYO ANCHOR 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA45
+Filtered out message from station: T with subject: A
+Msg:
+<0IPPING IS REQUESTED NOT TO ANCHOR NOR TO FISH IN THE VICINITY. 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA99
+Filtered out message from station: T with subject: A
+Msg:
+<2IPPING IS REQUESTED NOT TO FISH NOR TO ANCHOR IN THE VICINITYEPYE 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: VA80
+Filtered out message from station: V with subject: A
+Msg:
+<0CANCEL WZ 183/26 (VA63).2-33.5E, FOG SIGNAL INOPERATIVE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: EE68
+Filtered out message from station: E with subject: E
+Msg:
+<0RG WINDS EXP IN FITZROYH SEA. MAINLY FAIR, RAIN LTR IN W FASTNET. MOD OR
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: EA05
+Filtered out message from station: E with subject: A
+Msg:
+<0 CANCEL WZ 336/26 (EA04).-11.9N 004-12.1W WHITE LIGHT UNRELIABLE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: EA03
+Filtered out message from station: E with subject: A
+Msg:
+<0 CANCEL NAVAREA I 78/26 (EA68)(GA40)(OA98).000-57.2E OFF AIR. ND THE
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: EA01
+Filtered out message from station: E with subject: A
+Msg:
+<0(2)R 5 SEC, FOG SIGNAL BELL. ERMANENTLY CHANGED TO PORT HAND PILLAR BUOY
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: EA97
+Filtered out message from station: E with subject: A
+Msg:
+<0ONG CHARTED CABLE JOINING 51-39.8N 005-03.9W, 51-40.7N 006-06.0W.STORM
+NAVTEX bericht toegevoegd aan linked list. Sleutel: EA95
+Filtered out message from station: E with subject: A
+Msg:
+<0 CANCEL NAVAREA I 92/26 (EA89)(GA64)(OA17).IL FROM NAVAREA I CO-ORDINATOR
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GE86
+Filtered out message from station: G with subject: E
+Msg:
+<0D OR GOODAT FIRST IN FAR E, VEER W LTR, 4 TO 6. SLT OR MOD. RAIN OR SHWRS.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA80
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL NAVAREA I 78/26 (EA68)(GA40)(OA98).000-57.2E OFF AIR. ND THE
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA78
+Filtered out message from station: G with subject: A
+Msg:
+<0RELIABLE.FSHORE WIND FARM 57-13N 002-00W ALL TURBINE LIGHTS AND NAVAIDS
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA75
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 265/26 (GA30).1-21.1W, FOG SIGNAL INOPERATIVE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA73
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL NAVAREA I 92/26 (EA89)(GA64)(OA17).IL FROM NAVAREA I CO-ORDINATOR
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA69
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 303/26 (GA56). RATIVE: 
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA68
+Filtered out message from station: G with subject: A
+Msg:
+<0ATFORM 48/14-PL 53-34.0N 001-37.9E UNLIT. 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: GA62
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL THIS MSG 300100 UTC MAY 2026. ON TO SIGNALS SHOWN.AR OF ALL NAVAL0N
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA61
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 243/26 (GA18).08.6W AND NNG S BUOY 56-12.3N 002-09.8W AIS
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA57
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 232/26 (GA12)..0N 002-05.8E UNLIT AND ALL NAVAIDS INOPERATIVE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA55
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 226/26 (GA07).N 002-29.1E, FOG SIGNAL INOPERATIVE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA54
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 223/26 (GA02).6N 002-12.6E, UNLIT AND ALL NAVAIDS INOPERATIVE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA51
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 221/26 (GA15).
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: KA55
+Filtered out message from station: K with subject: A
+Msg:
+<0VIGATE WITH CAUTIONF SERVICE - BUOY DAMAGED - LIGHT BUOY - LIGHT UNLIT
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: KA53
+Filtered out message from station: K with subject: A
+Msg:
+<0 CANCEL THIS MSG 262359 UTC AUG 26 AUG 26
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: KA52
+Filtered out message from station: K with subject: A
+Msg:
+<0LL NOT BE TRANSMITTED.Y, FRENCH MESSAGES (K  518.0 KHZ AND T  490.0 KHZ)NCH
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: KA50
+Filtered out message from station: K with subject: A
+Msg:
+<0 CANCEL AVURNAV CHERBOURG 49/26GN AT SEAT 26
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: KA45
+Filtered out message from station: K with subject: A
+Msg:
+<0 CANCEL THIS MSG 112359 UTC SEP 261-24.17N 002-17.67E.G
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TE57
+Filtered out message from station: T with subject: E
+Msg:
+<0FEW THUNDERSTORMS. GOOD VIS, MOD DURING SHOWERS.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA13
+Filtered out message from station: T with subject: A
+Msg:
+<0IPPING IS REQUESTED NOT TO ANCHOR NOR TO FISH IN THE VICINITY.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TF76
+Filtered out message from station: T with subject: F
+Msg:
+<0CEPT FOR LNG CARRIERSTROL ZEEBRUGGE VHF 4 IS CLOSED, G 
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA10
+Filtered out message from station: T with subject: A
+Msg:
+<0RT OF ZEEBRUGGE WESTERN PIER FOGHORN OUT OF ORDER
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA55
+Filtered out message from station: T with subject: A
+Msg:
+<0 FISH IN THE VICINITY.REQUESTED NOT TO ANCHOR NOR  
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA44
+Filtered out message from station: T with subject: A
+Msg:
+<26SELS LISTENING ON VHF 16AT A SAFE DISTANCE FROM M/V DUKE, M/V MANU PEKKASIVES
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA27
+Filtered out message from station: T with subject: A
+Msg:
+<0IS OBJECT.UESTED NOT TO ANCHOR NOR TO FISH IN A RADIUS OF 500 METER AROUND
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA12
+Filtered out message from station: T with subject: A
+Msg:
+<0SH IN THE VICINITYD TO PASS AT A SAFE DISTANCE AND NOT TO ANCHOR NOR
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA11
+Filtered out message from station: T with subject: A
+Msg:
+<4IPPING IS REQUESTED NOT TO ANCHOR NOR FISH IN THE VICINITY
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA85
+Filtered out message from station: T with subject: A
+Msg:
+<0HIN DISTANCE OF 200MARE PROHIBITED 
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA45
+Filtered out message from station: T with subject: A
+Msg:
+<0IPPING IS REQUESTED NOT TO ANCHOR NOR TO FISH IN THE VICINITY. 
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: TA99
+Filtered out message from station: T with subject: A
+Msg:
+<2IPPING IS REQUESTED NOT TO FISH NOR TO ANCHOR IN THE VICINITYEPYE 
+NAVTEX bericht toegevoegd aan linked list. Sleutel: PA14
+Filtered out message from station: P with subject: A
+Msg:
+<0 290900 UTC MAY2-16.70N 003-25.30E
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: VA80
+Filtered out message from station: V with subject: A
+Msg:
+<0CANCEL WZ 183/26 (VA63).2-33.5E, FOG SIGNAL INOPERATIVE.
+NAVTEX bericht toegevoegd aan linked list. Sleutel: TA14
+Filtered out message from station: T with subject: A
+Msg:
+<2A VG2 BOEI, LENGTH OF TOW 180 MUTC MAYB GINGER, MULTRATUG 20 AND MULTRATUG
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: EA05
+Filtered out message from station: E with subject: A
+Msg:
+<0 CANCEL WZ 336/26 (EA04).-11.9N 004-12.1W WHITE LIGHT UNRELIABLE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: EA01
+Filtered out message from station: E with subject: A
+Msg:
+<0(2)R 5 SEC, FOG SIGNAL BELL. ERMANENTLY CHANGED TO PORT HAND PILLAR BUOY
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: EA97
+Filtered out message from station: E with subject: A
+Msg:
+<0ONG CHARTED CABLE JOINING 51-39.8N 005-03.9W, 51-40.7N 006-06.0W.STORM
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA78
+Filtered out message from station: G with subject: A
+Msg:
+<0RELIABLE.FSHORE WIND FARM 57-13N 002-00W ALL TURBINE LIGHTS AND NAVAIDS
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA75
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 265/26 (GA30).1-21.1W, FOG SIGNAL INOPERATIVE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA69
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 303/26 (GA56). RATIVE: 
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA68
+Filtered out message from station: G with subject: A
+Msg:
+<0ATFORM 48/14-PL 53-34.0N 001-37.9E UNLIT. 
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA61
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 243/26 (GA18).08.6W AND NNG S BUOY 56-12.3N 002-09.8W AIS
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA57
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 232/26 (GA12)..0N 002-05.8E UNLIT AND ALL NAVAIDS INOPERATIVE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA55
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 226/26 (GA07).N 002-29.1E, FOG SIGNAL INOPERATIVE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA54
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 223/26 (GA02).6N 002-12.6E, UNLIT AND ALL NAVAIDS INOPERATIVE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA51
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 221/26 (GA15).
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: GA49
+Filtered out message from station: G with subject: A
+Msg:
+<0 CANCEL WZ 204/26 (GA71)..1E UNLIT AND ALL NAVAIDS INOPERATIVE.
+Duplicaat bericht gevonden, niet toegevoegd. Sleutel: KA55
+Filtered out message from station: K with subject: A
+Msg:
+<0VIGATE WITH CAUTIONF SERVICE - BUOY DAMAGED - LIGHT BUOY - LIGHT UNLIT
+NAVTEX message received and processed.
+Flushing readbuffer

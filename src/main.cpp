@@ -82,6 +82,20 @@ SemaphoreHandle_t htmlFilterConfigMutex = NULL;
 // semafoor voor htmlNavtexMessageListContainer
 SemaphoreHandle_t htmlNavtexMessageListContainerMutex = NULL;
 
+// semafoor voor eventLog
+SemaphoreHandle_t eventLogMutex = NULL;
+
+// Structures to synch worker tasks with websockets
+// Later, we can re-use websockets for ClockFaces and also Humidity, temperature and pressure
+struct UICommand
+{
+    uint32_t requestId;
+    char filterValue[32];
+};
+
+volatile uint32_t nextRequestId = 1;
+
+QueueHandle_t uiCommandQueue; // replace FMSState with a queue to handle UI commands
 
 // =========================
 // HASH FUNCTION (FNV-1a)
@@ -94,7 +108,7 @@ uint32_t fnv1aHash(const std::string& s) {
         hash *= 0x01000193;
     }
     return hash;
-}
+};
 // =========================
 // NAVTEX MESSAGE STRUCTURE
 // =========================
@@ -164,13 +178,11 @@ std::vector<InputOption> subjectIndicators = {
   {"opt16","Z", "No messages on hand.", false} 
 };
 
-// Globale variable serverOuput mag reeds voldoende groot gekozen worden
-std::string serverOutput(8192, ' '); // Buffer voor server output, groot genoeg om de volledige HTML pagina te bevatten
+
 // We hergebruiken de BOOT knop voor andere functionaliteiten met korte druk
 unsigned long buttonPressedTime = 0;
 unsigned long functionEnteredTime = 0;
 const long LONG_PRESS_TIME = 3000; // 3 seconden voor lange druk
-const long waitMutexTakeTimeout = 10000; // 10 seconden timeout voor het nemen van de mutex
 bool isPressing = false;
 int buttonState = 0;
 String serial1In = ""; // From Serial1
@@ -183,7 +195,8 @@ uint8_t longueur_donnees;
 // Provide RealTime Clock DS3231 support via I2C
 RTC_DS3231 rtc;
 AsyncWebServer server(80);
-AsyncWebSocket ws("/ws");
+AsyncWebSocket ws("/ws"); // Handle webSockets for asynchronous updates
+
 String eventLog = ""; // Reserveer geheugen voor logboek, voorkomt fragmentatie
 const int maxLogLines = 25;
 const unsigned long LOG_PUSH_INTERVAL_MS = 250;
@@ -191,7 +204,6 @@ bool logUpdatePending = false;
 unsigned long lastLogPushMs = 0;
 bool safeModeActive = false;
 bool signalHardwareChange = false; // Variabele om aan te geven dat er nieuwe hardware is gedetecteerd, kan later worden gebruikt voor notificaties
-short int FMSState = ISOTHER; // Simuleer een Finite State Machine
 
 std::string parityRadioOptions; // Globale variabele om de gegenereerde Parity Radio HTML op te slaan
 std::string stopBitRadioOptions; // Globale variabele om de gegenereerde Stop Bit Dropdown HTML op te slaan
@@ -252,7 +264,7 @@ std::string extractMessageKey(const std::string& message) {
   }
 
   return "NNNN"; // Default value if not found
-}
+};
 
 // =========================
 // EXTRACT Subject Indicator Character
@@ -359,11 +371,16 @@ void pushLogToClients() {
 }
 
 void serviceLogUpdates() {
+  String logCopy; // locale variable to hold the log copy
   const unsigned long now = millis();
   if (logUpdatePending && ws.count() > 0 && now - lastLogPushMs >= LOG_PUSH_INTERVAL_MS) {
-    logUpdatePending = false;
-    lastLogPushMs = now;
-    ws.textAll(eventLog);
+    if (xSemaphoreTake(eventLogMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      logCopy = eventLog;
+      xSemaphoreGive(eventLogMutex);
+      logUpdatePending = false;
+      lastLogPushMs = now;
+      ws.textAll(logCopy);
+    }
   }
 }
 
@@ -410,6 +427,9 @@ void recreateHtmlFilterConfig(std::string& uiFilterConfig) {
 }
 
 void addToLog(String msg, bool includeTimestamp = true) {
+  if (xSemaphoreTake(eventLogMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+    return;
+  }
   std::string regel(126, ' '); // Reserveer geheugen voor logregel, voorkomt fragmentatie
   struct tm now_ts;
   if (includeTimestamp) {
@@ -427,6 +447,7 @@ void addToLog(String msg, bool includeTimestamp = true) {
   if (count > maxLogLines) {
     eventLog = eventLog.substring(eventLog.indexOf("<br>") + 4);
   }
+  xSemaphoreGive(eventLogMutex);
   pushLogToClients();
 }
 
@@ -686,10 +707,15 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
   (void)arg;
   (void)data;
   (void)len;
+  String logCopy;
 
   switch (type) {
     case WS_EVT_CONNECT:
-      client->printf("%s\n", eventLog.c_str());
+      if (xSemaphoreTake(eventLogMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        logCopy = eventLog;
+        xSemaphoreGive(eventLogMutex);
+      }
+      client->printf("%s\n", logCopy.c_str());
       break;
     case WS_EVT_DISCONNECT:
       break;
@@ -702,6 +728,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
       break;
   }
 }
+
 
 void createHtmlTemplates() {
 castWallClockTime(); // Update global variable with current time and clock emoji, sets htmlDateTimeButton_UI
@@ -914,6 +941,7 @@ htmlDeviceHeader = R"rawliteral(
 
     };
 
+
 void readNavtexText() {
   functionEnteredTime = millis();
   if (!Serial1.available()) {
@@ -980,38 +1008,25 @@ void readNavtexText() {
 }
 
 void handleRoot(AsyncWebServerRequest *request) {
-  BaseType_t thisMutex = pdFALSE;
+  std::string localOutput;
+  localOutput.reserve(16384);
   String myHtmlNavtexMessageListContainer; // Declare outside the if-else to ensure scope
   // Haal op een veilige manier htmlNavtexMessageListContainer op
-  if (xSemaphoreTake(htmlNavtexMessageListContainerMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+  if (xSemaphoreTake(htmlNavtexMessageListContainerMutex, pdMS_TO_TICKS(10000)) == pdTRUE) {
     myHtmlNavtexMessageListContainer = htmlNavtexMessageListContainer;
     xSemaphoreGive(htmlNavtexMessageListContainerMutex);
   } else {
-    long int startMutexStartMillis = millis();
-    do {
-      thisMutex = xSemaphoreTake(htmlNavtexMessageListContainerMutex, pdMS_TO_TICKS(5));
-      delay(5);
-      if (millis() - startMutexStartMillis > waitMutexTakeTimeout) { // vastgelegde timeout
-        break;
-      }
-    } while (thisMutex == pdFALSE);
-    if (thisMutex == pdTRUE) {
-      myHtmlNavtexMessageListContainer = htmlNavtexMessageListContainer;
-      xSemaphoreGive(htmlNavtexMessageListContainerMutex);
-    } else {
-      request->send(503, "text/plain", "Host busy, retry later.");
-      return;
-    }
+    request->send(503, "text/plain", "Host busy, retry later.");
+    return;
   }
   
   createHtmlTemplates(); // Regenerate templates to update dynamic content like clock emoji
-  serverOutput.clear(); // Clear buffer before generating new output
   if (safeModeActive) {
-    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, myHtmlNavtexMessageListContainer, htmlLog, htmlUploadLogFunction);
+    fmt::format_to(std::back_inserter(localOutput), "{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, myHtmlNavtexMessageListContainer, htmlLog, htmlUploadLogFunction);
   } else {
-    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlDeviceHeader, htmlUartSend, myHtmlNavtexMessageListContainer, htmlLog, htmlUploadLogFunction);
+    fmt::format_to(std::back_inserter(localOutput), "{}{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlDeviceHeader, htmlUartSend, myHtmlNavtexMessageListContainer, htmlLog, htmlUploadLogFunction);
   }
-  request->send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+  request->send(200, "text/html; charset=UTF-8", localOutput.c_str());
 }
 
 // Herstart
@@ -1024,10 +1039,12 @@ void systemConfig() {
 
 // --- SETUP ---
 void setup() {
-  FMSState = ISOTHER;
 
   htmlFilterConfigMutex = xSemaphoreCreateMutex();
   htmlNavtexMessageListContainerMutex = xSemaphoreCreateMutex();
+  eventLogMutex = xSemaphoreCreateMutex();
+  uiCommandQueue = xQueueCreate(8, sizeof(uint8_t)); // Queue for UI commands, max 8 commands, each of size uint8_t
+
 
   setenv("TZ", "CET-1CEST,M3.5.0/02:00:00,M10.5.0/03:00:00", 1);
   tzset();
@@ -1041,8 +1058,8 @@ void setup() {
     return;
   }
 
-  if ((htmlFilterConfigMutex == NULL) || (htmlNavtexMessageListContainerMutex == NULL)) {
-    Serial.println("Failed to create mutex");
+  if (htmlFilterConfigMutex == NULL || htmlNavtexMessageListContainerMutex == NULL || eventLogMutex == NULL || uiCommandQueue == NULL) {
+    Serial.println("Failed to create synchronization objects");
     while (1) {
       delay(1000); // Stop execution if mutex creation fails
     }
@@ -1137,23 +1154,44 @@ void setup() {
     handleRoot(request);
   });
   server.on("/getlog", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/plain", eventLog);
+    String logCopy;
+    if (xSemaphoreTake(eventLogMutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+      logCopy = eventLog;
+      xSemaphoreGive(eventLogMutex);
+    }
+    request->send(200, "text/plain", logCopy);
   });
   server.on("/savecfg", HTTP_POST, [](AsyncWebServerRequest *request) {
-    myCfg.ssid = request->arg("s"); // Lees ssid van formulier
-    String passFromForm = request->arg("p"); // Lees password van formulier
+    if (request->hasParam("s", true)) {
+      myCfg.ssid = request->getParam("s", true)->value(); // Lees ssid van formulier
+    }
+    String passFromForm = "/\\/\\"; // Default value to indicate unchanged password
+    if (request->hasParam("p", true)) {
+      passFromForm = request->getParam("p", true)->value(); // Lees password van formulier
+    }
     if(passFromForm == "/\\/\\") {
       // Als het wachtwoord veld ongewijzigd is (placeholder), behoud dan het oude wachtwoord
       Serial.println("Wachtwoord ongewijzigd, behoud huidig wachtwoord.");
     } else {
        myCfg.pass = passFromForm; // Lees password van formulier
     }
-    myCfg.mdns = request->arg("m"); // Lees mDNS van formulier
-    String baudAsString = request->arg("b"); // Lees baudrate van formulier
+    if (request->hasParam("m", true)) {
+      myCfg.mdns = request->getParam("m", true)->value(); // Lees mDNS van formulier
+    }
+    String baudAsString = "/\\/\\"; // Default value to indicate unchanged baudrate
+    if (request->hasParam("b", true)) {
+      baudAsString = request->getParam("b", true)->value(); // Lees baudrate van formulier
+    }
     myCfg.baud = baudAsString.toInt(); // Converteer naar integer
-    myCfg.parity = request->arg("parity_group").c_str(); // Lees parity_group van formulier
-    myCfg.stopBits = request->arg("stopBits_group").c_str(); // Lees stopBits_group van formulier
-    myCfg.dataBits = request->arg("dataBits_group").c_str(); // Lees dataBits_group van formulier
+    if (request->hasParam("parity_group", true)) {
+      myCfg.parity = request->getParam("parity_group", true)->value().c_str(); // Lees parity_group van formulier
+    }
+    if (request->hasParam("stopBits_group", true)) {
+      myCfg.stopBits = request->getParam("stopBits_group", true)->value().c_str(); // Lees stopBits_group van formulier
+    }
+    if (request->hasParam("dataBits_group", true)) {
+      myCfg.dataBits = request->getParam("dataBits_group", true)->value().c_str(); // Lees dataBits_group van formulier
+    }
     Serial.println("parityBits van portaal: " + String(myCfg.parity.c_str()));
     Serial.println("stopBits van portaal: " + String(myCfg.stopBits.c_str()));
     Serial.println("dataBits van portaal: " + String(myCfg.dataBits.c_str()));
@@ -1166,42 +1204,46 @@ void setup() {
     Serial1.begin(myCfg.baud, SERIAL_8N1, UART1_RX, UART1_TX);
     delay(2000);
     request->redirect("/");
-    FMSState = ISDORESTART;
+    uint8_t cmd = ISDORESTART;
+    if (xQueueSend(uiCommandQueue, &cmd, 0) != pdPASS) {
+      request->send(503, "text/plain", "Host busy, retry later.");
+    }
   });
   server.on("/write", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if(request->hasArg("t")){ 
-      String msg = request->arg("t");
+    if(request->hasParam("t", true)){ 
+      String msg = request->getParam("t", true)->value();
       Serial1.println(msg); 
       addToLog("<b>WEB-OUT:</b> " + msg);
     }
     request->redirect("/");
   });
   server.on("/filter", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if(request->hasArg("stationSelector_group")){ 
-      myCfg.stationCodeToFilter = request->arg("stationSelector_group").c_str(); // Update the station code filter in configuration
+    if(request->hasParam("stationSelector_group", true)){ 
+      myCfg.stationCodeToFilter = request->getParam("stationSelector_group", true)->value().c_str(); // Update the station code filter in configuration
       addToLog("<b>WEB-OUT:</b>Station filter set to" + String(myCfg.stationCodeToFilter));
     }
-    if(request->hasArg("subjectIndicator_group")){ 
-      myCfg.subjectIndicatorToFilter = request->arg("subjectIndicator_group").c_str(); // Update the subject indicator filter in configuration  
+    if(request->hasParam("subjectIndicator_group", true)){ 
+      myCfg.subjectIndicatorToFilter = request->getParam("subjectIndicator_group", true)->value().c_str(); // Update the subject indicator filter in configuration  
       addToLog("<b>WEB-OUT:</b>Subject filter set to" + String(myCfg.subjectIndicatorToFilter));
     }
-    if (xSemaphoreTake(htmlFilterConfigMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-      FMSState = ISNEWFILTER;
-      xSemaphoreGive(htmlFilterConfigMutex);
-      request->redirect("/");
+    uint8_t cmd = ISNEWFILTER;
+    if (xQueueSend(uiCommandQueue, &cmd, 0) != pdPASS) {
+      request->send(503, "text/plain", "Host busy, retry later.");
+      return;
     }
+    request->redirect("/");
   });
   server.on("/receive", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (xSemaphoreTake(htmlNavtexMessageListContainerMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-      FMSState = ISRECEIVE;
-      xSemaphoreGive(htmlNavtexMessageListContainerMutex);
-    } else {
-      FMSState = ISOTHER;
+    uint8_t cmd = ISRECEIVE;
+    if (xQueueSend(uiCommandQueue, &cmd, 0) != pdPASS) {
+      request->send(503, "text/plain", "Host busy, retry later.");
+      return;
     }
     request->redirect("/");
   });
   server.on("/getclock", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serverOutput.clear();
+    std::string localOutput;
+    localOutput.reserve(8192);
     // Obtain proper clock face based on system time
     struct tm now_ts;
     getLocalTime(&now_ts);
@@ -1239,12 +1281,12 @@ void setup() {
 </script>
     </div><div class='box'><button onclick="window.location='/'">Hoofdmenu</button></div>)rawliteral";
     
-    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlGetTimeDateForm, htmlUartSend, htmlLog, htmlUploadLogFunction);
-    request->send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+    fmt::format_to(std::back_inserter(localOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlGetTimeDateForm, htmlUartSend, htmlLog, htmlUploadLogFunction);
+    request->send(200, "text/html; charset=UTF-8", localOutput.c_str());
   });
   server.on("/setclock", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if (request->hasArg("dt")) {
-      String dt = request->arg("dt"); // Voorbeeld: "2023-10-27T14:30"
+    if (request->hasParam("dt", true)) {
+      String dt = request->getParam("dt", true)->value(); // Voorbeeld: "2023-10-27T14:30"
       // We gebruiken .substring of sscanf om de string te ontleden
       // Formaat: 0123 4 56 7 89 0 12 3 45
       //          YYYY - MM - DD T HH : MM
@@ -1286,9 +1328,10 @@ void setup() {
     }
   });
   server.on("/device", HTTP_GET, [](AsyncWebServerRequest *request) {
-    serverOutput.clear(); // Clear buffer before generating new output
-    fmt::format_to(std::back_inserter(serverOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlLog, htmlUploadLogFunction);
-    request->send(200, "text/html; charset=UTF-8", serverOutput.c_str());
+    std::string localOutput;
+    localOutput.reserve(8192);
+    fmt::format_to(std::back_inserter(localOutput), "{}{}{}{}{}{}{}", htmlHeaderString, htmlCSS, htmlSafeModeHeader, htmlWifiConfig, htmlUartSend, htmlLog, htmlUploadLogFunction);
+    request->send(200, "text/html; charset=UTF-8", localOutput.c_str());
   });
   // Serve favicon
   server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -1300,59 +1343,61 @@ void setup() {
   });
 
   server.begin();
-}
+};
 
 // --- MAIN LOOP ---
 void loop() {
+  uint8_t cmd;
   serviceLogUpdates();
-  delay(10);
+  delay(5);
   // UART1 naar WEB/USB
-  switch (FMSState) {
-    case ISRECEIVE: {
-      String msg = "$S";
-      Serial1.println(msg);
-      addToLog("<b>WEB-OUT: Fetching Navtex Messages</b>");
-      readNavtexText();
-      delay(1);
-      createNavtexMessageDisplayList(htmlNavtexMessageListString, myCfg.stationCodeToFilter[0], myCfg.subjectIndicatorToFilter[0]);
-      if (xSemaphoreTake(htmlNavtexMessageListContainerMutex, portMAX_DELAY) == pdTRUE) {
-        // Message List
-        htmlNavtexMessageListContainer = fmt::format("<div class='box'><h3>Ontvangen NAVTEX Berichten</h3>{}<br>{}<br>{}</div>", htmlNavtexMessageListString, UI_RECEIVE_BUTTON, htmlFilterConfig).c_str();
-        xSemaphoreGive(htmlNavtexMessageListContainerMutex);
-      };
-      FMSState = ISOTHER;
-      break;
-    }
-    case ISNEWFILTER: {
-      recreateFilterDropdownHtml(UI_RECEIVE_BUTTON); // Update the dropdown HTML based on new filters
-      if (xSemaphoreTake(htmlFilterConfigMutex, portMAX_DELAY) == pdTRUE) {
-          recreateHtmlFilterConfig(htmlFilterConfig);
-          xSemaphoreGive(htmlFilterConfigMutex);
-      };
-      delay(1);
-      createNavtexMessageDisplayList(htmlNavtexMessageListString, myCfg.stationCodeToFilter[0], myCfg.subjectIndicatorToFilter[0]);
-      if (xSemaphoreTake(htmlNavtexMessageListContainerMutex, portMAX_DELAY) == pdTRUE) {
-        // Message List
-        htmlNavtexMessageListContainer = fmt::format("<div class='box'><h3>Ontvangen NAVTEX Berichten</h3>{}<br>{}<br>{}</div>", htmlNavtexMessageListString, UI_RECEIVE_BUTTON, htmlFilterConfig).c_str();
-        xSemaphoreGive(htmlNavtexMessageListContainerMutex);
+  if (xQueueReceive(uiCommandQueue, &cmd, 0) == pdTRUE) {
+    switch (cmd) {
+      case ISRECEIVE: {
+        String msg = "$S";
+        Serial1.println(msg);
+        addToLog("<b>WEB-OUT: Fetching Navtex Messages</b>");
+        readNavtexText();
+        delay(1);
+        createNavtexMessageDisplayList(htmlNavtexMessageListString, myCfg.stationCodeToFilter[0], myCfg.subjectIndicatorToFilter[0]);
+        if (xSemaphoreTake(htmlNavtexMessageListContainerMutex, portMAX_DELAY) == pdTRUE) {
+          // Message List
+          htmlNavtexMessageListContainer = fmt::format("<div class='box'><h3>Ontvangen NAVTEX Berichten</h3>{}<br>{}<br>{}</div>", htmlNavtexMessageListString, UI_RECEIVE_BUTTON, htmlFilterConfig).c_str();
+          xSemaphoreGive(htmlNavtexMessageListContainerMutex);
+        }
+
+        break;
       }
-      FMSState = ISOTHER;
-      break;
-    }
-    case ISDORESTART: {
-      // Herstart logica kan hier worden toegevoegd als dat nodig is
-      delay(10);
-      FMSState = ISOTHER;
-      ESP.restart();
-      break;
-    }
-    default:
-      if (Serial1.available()) {
-        serial1In = Serial1.readStringUntil('\n');
-        serial1In.trim();
-        addToLog("<b>UART:</b> " + serial1In);
+      case ISNEWFILTER: {
+        recreateFilterDropdownHtml(UI_RECEIVE_BUTTON); // Update the dropdown HTML based on new filters
+        if (xSemaphoreTake(htmlFilterConfigMutex, portMAX_DELAY) == pdTRUE) {
+            recreateHtmlFilterConfig(htmlFilterConfig);
+            xSemaphoreGive(htmlFilterConfigMutex);
+        }
+        delay(1);
+        createNavtexMessageDisplayList(htmlNavtexMessageListString, myCfg.stationCodeToFilter[0], myCfg.subjectIndicatorToFilter[0]);
+        if (xSemaphoreTake(htmlNavtexMessageListContainerMutex, portMAX_DELAY) == pdTRUE) {
+          // Message List
+          htmlNavtexMessageListContainer = fmt::format("<div class='box'><h3>Ontvangen NAVTEX Berichten</h3>{}<br>{}<br>{}</div>", htmlNavtexMessageListString, UI_RECEIVE_BUTTON, htmlFilterConfig).c_str();
+          xSemaphoreGive(htmlNavtexMessageListContainerMutex);
+        }
+
+        break;
       }
-      break;
+      case ISDORESTART: {
+        // Herstart logica kan hier worden toegevoegd als dat nodig is
+        delay(10);
+
+        ESP.restart();
+        break;
+      }
+    }
+  } else {
+    if (Serial1.available()) {
+      serial1In = Serial1.readStringUntil('\n');
+      serial1In.trim();
+      addToLog("<b>UART:</b> " + serial1In);
+    }
   }
   delay(5);
   // Dubbele functionaliteit op BOOT knop: korte druk voor herstart, lange druk voor safe mode toggle
