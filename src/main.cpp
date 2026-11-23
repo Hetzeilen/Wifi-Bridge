@@ -204,7 +204,8 @@ AsyncWebSocket ws("/ws"); // Handle webSockets for asynchronous updates
 String eventLog = ""; // Reserveer geheugen voor logboek, voorkomt fragmentatie
 const int maxLogLines = 25;
 const unsigned long LOG_PUSH_INTERVAL_MS = 250;
-
+bool logUpdatePending = false;
+unsigned long lastLogPushMs = 0;
 bool safeModeActive = false;
 bool signalHardwareChange = false; // Variabele om aan te geven dat er nieuwe hardware is gedetecteerd, kan later worden gebruikt voor notificaties
 
@@ -227,23 +228,19 @@ String htmlJavascriptFunction PROGMEM = R"rawliteral(
 <script>
 let nextRequestId = 1;
 const pendingRequests = new Map();
-const scrollToBottom = () => {
-  if (!logBox) return;
-  const isNearBottom = logBox.scrollHeight - logBox.clientHeight <= logBox.scrollTop + 50;
-  if (isNearBottom) logBox.scrollTop = logBox.scrollHeight;
-};
 const protocol = (location.protocol === 'https:') ? 'wss' : 'ws';
 const handlers = {htmlLog: addToLogHandler, clockFace: updateElementHandler, msgList: updateElementHandler, measureHistory: measureHistoryHandler};
 const socket = new WebSocket(protocol + '://' + location.host + '/ws');
 socket.onopen = () => console.log('WebSocket connected');
 socket.onmessage = (event) => {
+  let msg;
   try {
-    const msg = JSON.parse(event.data);
+    msg = JSON.parse(event.data);
   } catch (err) {
-    console.error("Invalid WS message:", err);
+    console.error("Invalid JSON:", event.data);
     return;
   }
-  console.log("PARSED:", msg);
+  console.log(JSON.stringify(msg, null, 2));
   if (msg.window) {
     if (typeof msg.window === "undefined" ||
       typeof msg.payload === "undefined") {
@@ -271,10 +268,12 @@ socket.onmessage = (event) => {
 socket.onclose = () => console.log('WebSocket closed');
 socket.onerror = () => console.log('WebSocket error');
 function addToLogHandler(msg) {
-  const logBox = document.getElementById('logArea');
+  let logBox;
+  logBox = document.getElementById('logArea');
   if (!logBox) return;
   logBox.innerHTML = msg;
-  scrollToBottom();
+  const isNearBottom = logBox.scrollHeight - logBox.clientHeight <= logBox.scrollTop + 50;
+  if (isNearBottom) logBox.scrollTop = logBox.scrollHeight;
 }
 function updateDomElements(targetIds, data) {
 if (targetIds.labelId && data.nieuweLabel !== undefined) {
@@ -287,13 +286,14 @@ if (inputEl) inputEl.value = data.nieuweWaarde;
 }
 }
 function updateElementHandler(thismsg, kind) {
+  let element;
   const elementId = {
     clockFace: 'clockFace',
     msgList: 'msgList'
   }[kind];
 
   if (!elementId) return;
-  const element = document.getElementById(elementId);
+  element = document.getElementById(elementId);
   if (!element) return;
   element.innerHTML = thismsg;
 }
@@ -305,10 +305,10 @@ function clearLog() {
 function requestReceive() {
   const requestId = nextRequestId++;
   return new Promise((resolve, reject) => {
-    pendingCommands.set(requestId, { resolve, reject });
+    pendingRequests.set(requestId, { resolve, reject });
 
     if (socket.readyState !== WebSocket.OPEN) {
-      pendingCommands.delete(requestId);
+      pendingRequests.delete(requestId);
       reject(new Error("WebSocket is not connected"));
       return;
     }
@@ -318,11 +318,11 @@ function requestReceive() {
       window: "msgList"
     }));
     setTimeout(() => {
-      if (pendingCommands.has(requestId)) {
-        pendingCommands.delete(requestId);
+      if (pendingRequests.has(requestId)) {
+        pendingRequests.delete(requestId);
         reject(new Error("Command timed out"));
       }
-    }, 15000);
+    }, 80000);
   });
 }
 function sendUartCommand(event) {
@@ -332,7 +332,6 @@ function sendUartCommand(event) {
   }
   const command = document.getElementById("command").value.trim();
   if (!command) return;
-  const requestId = nextRequestId++;
   socket.send(JSON.stringify({
     command: "write",
     payload: command
@@ -410,7 +409,7 @@ void sendWsMessage(
 
   String json;
   serializeJson(doc, json);
-  Serial.printf("New message: %s\n", json);
+  Serial.printf("New message: %s\n", json.c_str());
   ws.textAll(json);
 }
 
@@ -469,7 +468,7 @@ void sendWsTextBlock(
         Serial.println("WS serialization failed");
         return;
       }
-      client->text(json);
+      ws.textAll(json);
     } else {
       Serial.println("Client is gone.");
     }
@@ -658,6 +657,24 @@ void recreateHtmlFilterConfig(std::string& uiFilterConfig) {
   uiFilterConfig = thisFilterConfig.c_str();
 }
 
+// --- HULPFUNCTIES VOOR LOGBOEK ---
+void pushLogToClients() {
+  logUpdatePending = ws.count() > 0;
+}
+
+void serviceLogUpdates() {
+  const unsigned long now = millis();
+  if (logUpdatePending && now - lastLogPushMs >= LOG_PUSH_INTERVAL_MS) {
+    if (xSemaphoreTake(eventLogMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+      return;
+    }
+    sendWsMessage("htmlLog", eventLog.c_str());
+    logUpdatePending = false;
+    lastLogPushMs = now;
+    xSemaphoreGive(eventLogMutex);
+  }
+}
+
 void addToLog(String msg, bool includeTimestamp = true) {
   if (xSemaphoreTake(eventLogMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
     return;
@@ -680,7 +697,7 @@ void addToLog(String msg, bool includeTimestamp = true) {
     eventLog = eventLog.substring(eventLog.indexOf("<br>") + 4);
   }
   xSemaphoreGive(eventLogMutex);
-  sendWsMessage("htmlLog", eventLog.c_str());
+  pushLogToClients();
 }
 
 void sendMeasure(String measure) {
@@ -879,28 +896,22 @@ bool readUntilSequence(HardwareSerial& serial,
   unsigned long functionEnteredTime = millis();
 
   String in = "";
-  while (flagStopWordIsFound == false) {
-    if (serial.available()) {
-      in = serial.readStringUntil('\n');
-      if (in.endsWith(stop.c_str())) {
-        flagStopWordIsFound = true;
-        return true;
-      } else {
-        result += in.c_str();
-      };
-      if (result.length() > MAX_NAVTEX_BLOCK_SIZE) {
-        addToLog("NAVTEX block exceeded maximum size.", false);
-        result.clear();
-        return false;
-      }
-      functionEnteredTime = millis();
-    }
-    if (millis() - functionEnteredTime > 10000) { // 10 seconds timeout
-      addToLog("Timeout while reading from serial.", false);
-      break;
-    }
+  functionEnteredTime = millis();
+  while (serial.available()) {
+    in = serial.readStringUntil('\n');
+    if (in.endsWith(stop.c_str()) && in.length() == 3) {
+      flagStopWordIsFound = true;
+    };
+    result += in.c_str();
+    delay(30);
+    //if (result.length() > MAX_NAVTEX_BLOCK_SIZE) {
+    //  addToLog("NAVTEX block exceeded maximum size.", false);
+    //  result.clear();
+    //  return false;
+    //}
   }
-  return false;
+  //return flagStopWordIsFound;
+  return true;
 };
 
 // Build HTML for the filtered NAVTEX messages.
@@ -1247,7 +1258,7 @@ void readNavtexText() {
   if (readUntilSequence(Serial1, textBlock, "end")) {
   // NAVTEX messages always start with '>'
     uint32_t  currentHash = fnv1aHash(textBlock);
-    Serial.println("We got the block of text");
+    Serial.printf("We got the block of text. Size: %u\n", textBlock.length());
     if (currentHash != lastHash) { // we have a text block that is different from the last one
       size_t pos = 0;
       size_t start;
@@ -1652,13 +1663,23 @@ void setup() {
 // --- MAIN LOOP ---
 void loop() {
   UiCommand cmd{};
-  delay(5);
+  delay(10);
+  serviceLogUpdates();
   // UART1 naar WEB/USB
   if (xQueueReceive(uiCommandQueue, &cmd, 0) == pdTRUE) {
     switch (cmd.type) {
       case UI_COMMAND_RECEIVE: {
-        String msg = "$S";
-        Serial1.println(msg);
+        // First get rid of any previous output pending
+        while (Serial1.available()) {
+          Serial1.read(); // Clear any remaining data in the buffer to avoid overflow
+          delay(5);
+        }
+        // We have to clear the receive buffer
+        textBlock.clear();
+        // Next, we require the receive buffer with $S
+        Serial1.println("$S");
+        // Allow the device to respond
+        delay(50);
         addToLog("<b>WEB-OUT: Fetching Navtex Messages</b>");
         readNavtexText();
         delay(1);
