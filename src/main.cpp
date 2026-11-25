@@ -89,6 +89,7 @@ struct UiCommand {
   char window[24];
 };
 
+UiCommand loopCmd{};
 // mutex semaforen om stringmanipulatie te beschermen
 // semafoor voor htmlFilterConfig
 SemaphoreHandle_t htmlFilterConfigMutex = NULL;
@@ -181,7 +182,8 @@ std::vector<InputOption> subjectIndicators = {
   {"opt15","Y", "Special Services Allocated by NAVTEX Panel (Y)", false},
   {"opt16","Z", "No messages on hand.", false} 
 };
-
+// We definiëren een globale debug variabele om de navtex tekst slechts 1 keer te lezen
+bool runOnce = true;
 
 // We hergebruiken de BOOT knop voor andere functionaliteiten met korte druk
 unsigned long buttonPressedTime = 0;
@@ -229,7 +231,7 @@ String htmlJavascriptFunction PROGMEM = R"rawliteral(
 let nextRequestId = 1;
 const pendingRequests = new Map();
 const protocol = (location.protocol === 'https:') ? 'wss' : 'ws';
-const handlers = {htmlLog: addToLogHandler, clockFace: updateElementHandler, msgList: updateElementHandler, measureHistory: measureHistoryHandler};
+const handlers = {logArea: addToLogHandler, clockFace: updateElementHandler, msgList: updateElementHandler, measureHistory: measureHistoryHandler};
 const socket = new WebSocket(protocol + '://' + location.host + '/ws');
 socket.onopen = () => console.log('WebSocket connected');
 socket.onmessage = (event) => {
@@ -241,49 +243,45 @@ socket.onmessage = (event) => {
     return;
   }
   console.log(JSON.stringify(msg, null, 2));
-  if (msg.window) {
-    if (typeof msg.window === "undefined" ||
-      typeof msg.payload === "undefined") {
-      console.error('Invalid message format:', event.data);
+  if (!msg.window || typeof msg.payload === "undefined") {
+    console.error("Invalid message format:", event.data);
+    return;
+  }
+
+  const handler = handlers[msg.window];
+  if (!handler) {
+    console.error("No handler for window:", msg.window);
+    return;
+  }
+
+  if (msg.requestId != undefined) {
+    // This line implicitely reads and assigns from map, equivalent to
+    // const { resolve } = pendingRequests.get(msg.requestId)
+    const pending = pendingRequests.get(msg.requestId);
+
+    if (!pending) {
+      console.warn("No pending request for response:", msg.requestId);
       return;
     }
-    handler = handlers[msg.window];
-    if(handler) {
-      if (msg.requestId !== undefined && pendingRequests.has(msg.requestId)) {
-        const { resolve, targetIds } = pendingRequests.get(msg.requestId);
-        handler(msg.payload, msg.window);
-        resolve(msg);
-        pendingRequests.delete(msg.requestId);
-        return; // Klaar met afhandelen
-      } else {
-        handler(msg.payload, msg.window);
-      }
-    } else {
-      console.error('No handler for window:', msg.window);
-    }
-  } else {
-   console.error('Message inproperly formatted:', msg);
+
+    pendingRequests.delete(msg.requestId);
+    handler(msg.payload, msg.window);
+    pending.resolve(msg);
+    return;
   }
+
+  // Unsolicited server update
+  handler(msg.payload, msg.window);
 };
 socket.onclose = () => console.log('WebSocket closed');
 socket.onerror = () => console.log('WebSocket error');
-function addToLogHandler(msg) {
-  let logBox;
-  logBox = document.getElementById('logArea');
-  if (!logBox) return;
-  logBox.innerHTML = msg;
-  const isNearBottom = logBox.scrollHeight - logBox.clientHeight <= logBox.scrollTop + 50;
-  if (isNearBottom) logBox.scrollTop = logBox.scrollHeight;
-}
-function updateDomElements(targetIds, data) {
-if (targetIds.labelId && data.nieuweLabel !== undefined) {
-  const labelEl = document.getElementById(targetIds.labelId);
-  if (labelEl) labelEl.textContent = data.nieuweLabel;
-}
-if (targetIds.inputId && data.nieuweWaarde !== undefined) {
-const inputEl = document.getElementById(targetIds.inputId);
-if (inputEl) inputEl.value = data.nieuweWaarde;
-}
+function addToLogHandler(msg, window) {
+  let element;
+  element = document.getElementById(window);
+  if (!element) return;
+  element.innerHTML = msg;
+  const isNearBottom = element.scrollHeight - element.clientHeight <= element.scrollTop + 50;
+  if (isNearBottom) element.scrollTop = element.scrollHeight;
 }
 function updateElementHandler(thismsg, kind) {
   let element;
@@ -302,9 +300,24 @@ function clearLog() {
             .getElementById("logArea")
             .innerHTML = "";
 }
-function requestReceive() {
-  const requestId = nextRequestId++;
+async function requestSynched(command, payloadId) {
+  // When no payload is required then payloadId is passed as undefined
+  // otherwise payload will be the element value
+  let payload;
+  if (payloadId !== undefined) {
+    const input = document.getElementById(payloadId);
+    payload = input.value.trim();
+  } else { payload = ""; }
+  try {
+    // Wait here upon esp32 response
+    const result = await sendSynchedRequest(command, payload);
+  } catch (err) { // Pas de HTML aan bij een fout of timeout
+    console.error("Error waiting, ", err.message);
+  }
+}
+function sendSynchedRequest(cmd, payload) {
   return new Promise((resolve, reject) => {
+    const requestId = nextRequestId++;
     pendingRequests.set(requestId, { resolve, reject });
 
     if (socket.readyState !== WebSocket.OPEN) {
@@ -313,9 +326,9 @@ function requestReceive() {
       return;
     }
     socket.send(JSON.stringify({
-      command: "receive",
+      command: cmd,
       requestId: requestId,
-      window: "msgList"
+      payload: payload
     }));
     setTimeout(() => {
       if (pendingRequests.has(requestId)) {
@@ -392,7 +405,7 @@ function measureHistoryHandler(values) {
 std::string htmlFilterConfig;   // Globale variabele om het NAVTEX Config formulier op te slaan
 std::string htmlNavtexMessageList; // Unnumbered list
 String htmlNavtexMessageListContainer; // Globale variabele om de NAVTEX Message List HTML op te slaan
-std::string UI_RECEIVE_BUTTON = "<div class='box'><button onclick='requestReceive()'>Ontvang</button></div>"; // Globale variabele om de button om te ontvangen 'aan' en 'af' te zetten
+std::string UI_RECEIVE_BUTTON = "<div class='box'><button onclick='requestSynched(\"receive\", undefined)'>Ontvang</button></div>"; // Globale variabele om de button om te ontvangen 'aan' en 'af' te zetten
 String UI_RECEIVEFILTER_BUTTON = "Bewaar";
 String htmlDateTimeButton_UI = "<div class='box'><button onclick='window.location=\"/getclock\"'> <span id='clockFace'>HH:MM:SS</span> </button></div>"; // Globale variabele DateTime submit button te decoreren
 std::string htmlConfigurationButton; // Globale variabele om de configuratie buttons HTML op te slaan
@@ -409,7 +422,6 @@ void sendWsMessage(
 
   String json;
   serializeJson(doc, json);
-  Serial.printf("New message: %s\n", json.c_str());
   ws.textAll(json);
 }
 
@@ -468,7 +480,8 @@ void sendWsTextBlock(
         Serial.println("WS serialization failed");
         return;
       }
-      ws.textAll(json);
+      // In this context we definitely know who is sending so we might address him back
+      client->text(json);
     } else {
       Serial.println("Client is gone.");
     }
@@ -626,7 +639,7 @@ void recreateFilterDropdownHtml(std::string& uiReceiveButton) {
   selectByValue(stationSelectors, stationSelectorToFilterStr);
   htmlStationSelectorDropdownOptions = buildDropdownHtml(stationSelectors, "stationSelector_group").c_str();
 
-  uiReceiveButton = fmt::format("<div class='box'><button onclick='requestReceive()'>Ontvang [{}|{}]</button></div>", myCfg.stationCodeToFilter.c_str(), myCfg.subjectIndicatorToFilter.c_str());
+  uiReceiveButton = fmt::format("<div class='box'><button onclick='requestSynched(\"receive\", undefined)'>Ontvang [{}|{}]</button></div>", myCfg.stationCodeToFilter.c_str(), myCfg.subjectIndicatorToFilter.c_str());
 }
 
 void recreateHtmlFilterConfig(std::string& uiFilterConfig) {
@@ -668,7 +681,8 @@ void serviceLogUpdates() {
     if (xSemaphoreTake(eventLogMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
       return;
     }
-    sendWsMessage("htmlLog", eventLog.c_str());
+    // --- Here, the windowName 'logArea' is also the DOM with id 'logArea'
+    sendWsMessage("logArea", eventLog.c_str());
     logUpdatePending = false;
     lastLogPushMs = now;
     xSemaphoreGive(eventLogMutex);
@@ -999,10 +1013,20 @@ void onWsEvent(
                 break;
             }
             cmd.clientId = client;
+
             cmd.requestId =
-                doc["requestId"] | 0;
+                doc["requestId"] | uint32_t{0};
+
             const char *command =
                 doc["command"] | "";
+
+            const char *window =
+                doc["window"] | "";
+            strlcpy(
+                cmd.window,
+                window,
+                sizeof(cmd.window));
+
             if (strcmp(command, "receive") == 0)
             {
                 cmd.type = UI_COMMAND_RECEIVE;
@@ -1662,12 +1686,11 @@ void setup() {
 
 // --- MAIN LOOP ---
 void loop() {
-  UiCommand cmd{};
   delay(10);
   serviceLogUpdates();
   // UART1 naar WEB/USB
-  if (xQueueReceive(uiCommandQueue, &cmd, 0) == pdTRUE) {
-    switch (cmd.type) {
+  if (xQueueReceive(uiCommandQueue, &loopCmd, 0) == pdTRUE) {
+    switch (loopCmd.type) {
       case UI_COMMAND_RECEIVE: {
         // First get rid of any previous output pending
         while (Serial1.available()) {
@@ -1681,12 +1704,12 @@ void loop() {
         // Allow the device to respond
         delay(50);
         addToLog("<b>WEB-OUT: Fetching Navtex Messages</b>");
-        readNavtexText();
+        if (runOnce) { readNavtexText(); runOnce = false; }
         delay(1);
         if (xSemaphoreTake(htmlNavtexMessageListMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
           createNavtexMessageDisplayList(htmlNavtexMessageList, myCfg.stationCodeToFilter[0], myCfg.subjectIndicatorToFilter[0]);
           // Push Message List to Websockets
-          sendWsTextBlock("msgList", htmlNavtexMessageList, cmd.requestId, cmd.clientId);
+          sendWsTextBlock("msgList", htmlNavtexMessageList, loopCmd.requestId, loopCmd.clientId);
           xSemaphoreGive(htmlNavtexMessageListMutex);
         } else {
           addToLog("<b>RECEIVE: Previous task pending, retry later.");
@@ -1704,7 +1727,7 @@ void loop() {
         if (xSemaphoreTake(htmlNavtexMessageListMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
           createNavtexMessageDisplayList(htmlNavtexMessageList, myCfg.stationCodeToFilter[0], myCfg.subjectIndicatorToFilter[0]);
           // Push Message list to Websockets
-          sendWsTextBlock("msgList", htmlNavtexMessageList, cmd.requestId, cmd.clientId);
+          sendWsTextBlock("msgList", htmlNavtexMessageList, loopCmd.requestId, loopCmd.clientId);
           xSemaphoreGive(htmlNavtexMessageListMutex);
         } else {
           addToLog("<b>FILTER: Previous task pending, retry later.");
@@ -1713,8 +1736,8 @@ void loop() {
         break;
       }
       case UI_COMMAND_WRITE:
-        Serial1.println(cmd.payload);
-        addToLog("<b>WEB-OUT:</b> " + String(cmd.payload));
+        Serial1.println(loopCmd.payload);
+        addToLog("<b>WEB-OUT:</b> " + String(loopCmd.payload));
         break;
       case UI_COMMAND_RESTART: {
         // Herstart logica kan hier worden toegevoegd als dat nodig is
